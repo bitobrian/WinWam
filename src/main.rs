@@ -2,7 +2,7 @@
 
 use std::{
     cell::Cell,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -98,17 +98,41 @@ struct Addon {
     tags: Vec<String>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Page {
-    Browse,
+    Discover,
     Installed,
     Loadouts,
+    Workshop,
     Settings,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkshopScreen {
+    Overview,
+    Anatomy,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum UpdateStatus {
+    Idle,
+    Checking,
+    Current,
+    Failed(String),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct CatalogSurfaceState {
+    query: String,
+    category: Option<String>,
 }
 
 enum Message {
     Navigate(Page),
     Search(String),
+    CheckForUpdates,
+    DirectoryRefreshFinished(usize, Result<AddonSourceList, String>),
+    ShowWorkshopScreen(WorkshopScreen),
     SelectFlavor(Option<usize>),
     SelectCategory(Option<usize>),
     SelectSort(Option<usize>),
@@ -141,7 +165,6 @@ enum Message {
 struct WinWam {
     source_list: AddonSourceList,
     page: Page,
-    query: String,
     selected_flavor: usize,
     directory_error: Option<String>,
     source_base_url: String,
@@ -149,7 +172,6 @@ struct WinWam {
     wow_folder: String,
     wow_folder_missing: bool,
     check_for_updates: bool,
-    category_filter: usize,
     sort_mode: usize,
     installed_addon_ids: BTreeSet<String>,
     installed_addons: Vec<scan::InstalledAddon>,
@@ -164,6 +186,12 @@ struct WinWam {
     loadouts: Vec<Loadout>,
     loadout_draft: Option<LoadoutDraft>,
     loadout_prompt: Option<LoadoutPrompt>,
+    last_pages: BTreeMap<String, String>,
+    support_banner_dismissed: bool,
+    update_status: UpdateStatus,
+    workshop_screen: WorkshopScreen,
+    discover_surfaces: [CatalogSurfaceState; 5],
+    installed_surfaces: [CatalogSurfaceState; 5],
 }
 
 impl Component for WinWam {
@@ -229,12 +257,13 @@ impl Component for WinWam {
         });
         let app = Self {
             source_list,
-            page: if wow_folder_missing {
-                Page::Settings
-            } else {
-                Page::Browse
-            },
-            query: String::new(),
+            page: initial_page(
+                wow_folder_missing,
+                settings
+                    .last_pages
+                    .get(GAME_FLAVORS[selected_flavor].slug)
+                    .map(String::as_str),
+            ),
             selected_flavor,
             directory_error,
             pending_source_base_url: source_base_url.clone(),
@@ -242,7 +271,6 @@ impl Component for WinWam {
             wow_folder,
             wow_folder_missing,
             check_for_updates: settings.check_for_updates,
-            category_filter: 0,
             sort_mode: 0,
             installed_addon_ids,
             installed_addons,
@@ -257,6 +285,12 @@ impl Component for WinWam {
             loadouts: settings.loadouts,
             loadout_draft: None,
             loadout_prompt: None,
+            last_pages: settings.last_pages,
+            support_banner_dismissed: settings.support_banner_dismissed,
+            update_status: UpdateStatus::Idle,
+            workshop_screen: WorkshopScreen::Overview,
+            discover_surfaces: std::array::from_fn(|_| CatalogSurfaceState::default()),
+            installed_surfaces: std::array::from_fn(|_| CatalogSurfaceState::default()),
         };
         app.persist_settings();
         app
@@ -371,37 +405,94 @@ impl Component for WinWam {
                     self.pending_source_base_url = self.source_base_url.clone();
                 }
                 self.page = page;
+                self.remember_current_page();
             }
             Message::Search(query) => {
-                self.query = query;
+                if let Some(surface) = self.active_catalog_surface_mut() {
+                    surface.query = query;
+                }
                 self.browse_page = 0;
             }
-            Message::SelectFlavor(Some(index)) if index < GAME_FLAVORS.len() => {
-                if index == self.selected_flavor {
+            Message::CheckForUpdates => {
+                if self.wow_folder_missing
+                    || matches!(self.update_status, UpdateStatus::Checking)
+                {
                     return;
                 }
+                self.update_status = UpdateStatus::Checking;
+                let flavor = self.selected_flavor;
+                let source_base_url = self.source_base_url.clone();
+                context.spawn_background(move |_| {
+                    let result = match load_source_list(flavor, &source_base_url) {
+                        Ok(source_list) => Ok(source_list),
+                        Err(error) => Err(error.to_string()),
+                    };
+                    Message::DirectoryRefreshFinished(flavor, result)
+                });
+            }
+            Message::DirectoryRefreshFinished(flavor, result) => {
+                if flavor != self.selected_flavor {
+                    return;
+                }
+                let (source_list, directory_error) =
+                    apply_directory_result(self.source_list.clone(), result);
+                match &directory_error {
+                    None => {
+                        self.source_list = source_list;
+                        self.directory_error = None;
+                        self.refresh_installed();
+                        self.update_status = UpdateStatus::Current;
+                    }
+                    Some(error) => {
+                        self.source_list = source_list;
+                        self.directory_error =
+                            Some(format!("Could not load directory: {error}"));
+                        self.update_status = UpdateStatus::Failed(error.clone());
+                    }
+                }
+            }
+            Message::ShowWorkshopScreen(screen) => self.workshop_screen = screen,
+            Message::SelectFlavor(Some(index)) if index < GAME_FLAVORS.len() => {
+                if index == self.selected_flavor || !self.installing_addon_ids.is_empty() {
+                    return;
+                }
+                self.remember_current_page();
                 self.selected_flavor = index;
-                self.category_filter = 0;
                 self.browse_page = 0;
                 self.loadout_draft = None;
                 self.loadout_prompt = None;
                 self.wow_folder_missing =
                     !is_wow_folder_for_flavor(Path::new(self.wow_folder.trim()), index);
-                if self.wow_folder_missing {
-                    self.page = Page::Settings;
-                }
+                self.page = initial_page(
+                    self.wow_folder_missing,
+                    self.last_pages
+                        .get(GAME_FLAVORS[index].slug)
+                        .map(String::as_str),
+                );
                 match load_source_list(index, &self.source_base_url) {
                     Ok(source_list) => {
+                        let (source_list, directory_error) =
+                            apply_directory_result(empty_source_list(index), Ok(source_list));
                         self.source_list = source_list;
-                        self.directory_error = None;
+                        self.directory_error = directory_error;
                     }
                     Err(error) => {
                         logging::error(&format!(
                             "Could not load the {} addon directory: {error}",
                             GAME_FLAVORS[index].label
                         ));
-                        self.source_list = empty_source_list(index);
-                        self.directory_error = Some(format!("Could not load directory: {error}"));
+                        let (source_list, directory_error) = apply_directory_result(
+                            empty_source_list(index),
+                            Err(error.to_string()),
+                        );
+                        self.source_list = source_list;
+                        self.directory_error = directory_error
+                            .map(|error| format!("Could not load directory: {error}"));
+                    }
+                }
+                if let Some(id) = &self.expanded_addon_id {
+                    if !self.source_list.addons.iter().any(|addon| addon.id == *id) {
+                        self.expanded_addon_id = None;
                     }
                 }
                 self.refresh_installed();
@@ -410,7 +501,10 @@ impl Component for WinWam {
             Message::SelectFlavor(Some(_)) => {}
             Message::SelectFlavor(None) => {}
             Message::SelectCategory(Some(index)) => {
-                self.category_filter = index;
+                let categories = unique_categories(&self.source_list.addons);
+                if let Some(surface) = self.active_catalog_surface_mut() {
+                    surface.category = categories.get(index).cloned();
+                }
                 self.browse_page = 0;
             }
             Message::SelectCategory(None) => {}
@@ -540,10 +634,10 @@ impl Component for WinWam {
         context.on_window_size(self.resize_callback.clone());
         context.window_visuals(
             WindowVisuals::new()
-                .client_size(1400.0, 900.0)
+                .client_size(theme::REFERENCE_CLIENT_WIDTH, theme::REFERENCE_CLIENT_HEIGHT)
                 .constraints(WindowConstraints {
-                    min_width: Some(1400.0),
-                    min_height: Some(760.0),
+                    min_width: Some(theme::MIN_CLIENT_WIDTH),
+                    min_height: Some(theme::MIN_CLIENT_HEIGHT),
                     max_width: None,
                     max_height: None,
                 })
@@ -559,86 +653,100 @@ impl Component for WinWam {
             .is_pane_toggle_button_visible(false)
             .slots([SlotView::new(
                 TitleBarSlot::Content,
-                Button::new()
-                    .style(ButtonStyle::Subtle)
-                    .resource_overrides(theme::combo_box_resources(palette))
-                    .content(
-                        ComboBox::new()
-                            .min_width(240.0)
-                            .items_source(GAME_FLAVORS.map(|flavor| flavor.label))
-                            .selected_index(self.selected_flavor)
+                Grid::new()
+                    .columns([
+                        GridLength::Pixel(theme::GAME_PANEL_WIDTH),
+                        GridLength::STAR,
+                    ])
+                    .children((
+                        StackPanel::new()
+                            .orientation(Orientation::Horizontal)
+                            .spacing(13.0)
                             .vertical_alignment(VerticalAlignment::Center)
-                            .on_selection_changed(context.callback(Message::SelectFlavor)),
-                    ),
+                            .margin(Thickness::new(16.0, 0.0, 0.0, 0.0))
+                            .children((
+                                Image::new()
+                                    .source_data(EncodedImage::from_static(include_bytes!(
+                                        "../assets/icon.png"
+                                    )))
+                                    .width(44.0)
+                                    .height(44.0)
+                                    .stretch(Stretch::Uniform),
+                                TextBlock::new()
+                                    .text("WinWAM")
+                                    .font_size(theme::BRAND_SIZE)
+                                    .font_weight(FontWeight::BOLD)
+                                    .foreground(palette.text_primary)
+                                    .vertical_alignment(VerticalAlignment::Center),
+                            )),
+                        StackPanel::new()
+                            .grid_column(1)
+                            .orientation(Orientation::Horizontal)
+                            .spacing(32.0)
+                            .margin(Thickness::new(24.0, 0.0, 0.0, 0.0))
+                            .children((
+                                theme::topnav_button(
+                                    palette,
+                                    "DISCOVER",
+                                    self.page == Page::Discover,
+                                )
+                                .automation_name("Discover")
+                                .on_click(context.callback(|_| Message::Navigate(Page::Discover))),
+                                theme::topnav_button(
+                                    palette,
+                                    "MY ADDONS",
+                                    self.page == Page::Installed,
+                                )
+                                .automation_name("My Addons")
+                                .on_click(context.callback(|_| Message::Navigate(Page::Installed))),
+                                theme::topnav_button(
+                                    palette,
+                                    "LOADOUTS",
+                                    self.page == Page::Loadouts,
+                                )
+                                .automation_name("Loadouts")
+                                .on_click(context.callback(|_| Message::Navigate(Page::Loadouts))),
+                                theme::topnav_button(
+                                    palette,
+                                    "ADDON WORKSHOP",
+                                    self.page == Page::Workshop,
+                                )
+                                .automation_name("Addon Workshop")
+                                .on_click(context.callback(|_| Message::Navigate(Page::Workshop))),
+                            )),
+                    )),
             )]);
 
         let content = match self.page {
-            Page::Browse => self.browse_view(context),
+            Page::Discover => self.browse_view(context),
             Page::Installed => self.installed_view(context),
             Page::Loadouts => self.loadouts_view(context),
+            Page::Workshop => self.workshop_view(context),
             Page::Settings => self.settings_view(context),
         };
 
-        let sidebar = Border::new()
-            .grid_column(0)
-            .background(palette.sidebar_bg)
-            .horizontal_alignment(HorizontalAlignment::Stretch)
-            .vertical_alignment(VerticalAlignment::Stretch)
-            .content(
-                Grid::new()
-                    .rows([GridLength::STAR, GridLength::Auto])
-                    .children((
-                        StackPanel::new()
-                            .grid_row(0)
-                            .spacing(4.0)
-                            .margin(Thickness::uniform(8.0))
-                            .vertical_alignment(VerticalAlignment::Top)
-                            .children((
-                                theme::nav_button(
-                                    palette,
-                                    "Browse",
-                                    Symbol::Find,
-                                    self.page == Page::Browse,
-                                )
-                                .on_click(context.callback(|_| Message::Navigate(Page::Browse))),
-                                theme::nav_button(
-                                    palette,
-                                    format!("Installed  ({})", self.installed_addon_ids.len()),
-                                    Symbol::Download,
-                                    self.page == Page::Installed,
-                                )
-                                .on_click(context.callback(|_| Message::Navigate(Page::Installed))),
-                                theme::nav_button(
-                                    palette,
-                                    "Loadouts",
-                                    Symbol::Library,
-                                    self.page == Page::Loadouts,
-                                )
-                                .on_click(context.callback(|_| Message::Navigate(Page::Loadouts))),
-                            )),
-                        StackPanel::new().grid_row(1).children((
-                            theme::sku_flair(self.selected_flavor),
-                            Border::new()
-                                .height(1.0)
-                                .margin(Thickness::new(8.0, 0.0, 8.0, 8.0))
-                                .background(palette.stroke),
-                            theme::nav_button(
-                                palette,
-                                "Settings",
-                                Symbol::Setting,
-                                self.page == Page::Settings,
-                            )
-                            .on_click(context.callback(|_| Message::Navigate(Page::Settings))),
-                        )),
-                    )),
-            );
-
         let page = Border::new()
-            .grid_column(1)
             .background(palette.app_bg)
             .horizontal_alignment(HorizontalAlignment::Stretch)
             .vertical_alignment(VerticalAlignment::Stretch)
             .content(content);
+
+        let hood: View = if self.hood_open {
+            Border::new()
+                .width(380.0)
+                .horizontal_alignment(HorizontalAlignment::Right)
+                .vertical_alignment(VerticalAlignment::Stretch)
+                .content(self.hood_view())
+                .into()
+        } else {
+            Border::new().width(0.0).into()
+        };
+
+        let content_column = Grid::new()
+            .grid_column(1)
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .vertical_alignment(VerticalAlignment::Stretch)
+            .children((page, hood));
 
         Grid::new()
             .rows([GridLength::Auto, GridLength::STAR])
@@ -656,19 +764,10 @@ impl Component for WinWam {
                     Grid::new()
                         .grid_row(1)
                         .columns([
-                            GridLength::Pixel(theme::SIDEBAR_WIDTH),
+                            GridLength::Pixel(theme::GAME_PANEL_WIDTH),
                             GridLength::STAR,
-                            GridLength::Pixel(if self.hood_open { 380.0 } else { 0.0 }),
                         ])
-                        .children((
-                            sidebar,
-                            page,
-                            Border::new().grid_column(2).content(if self.hood_open {
-                                self.hood_view()
-                            } else {
-                                Border::new().into()
-                            }),
-                        )),
+                        .children((self.game_panel_view(context), content_column)),
                 ),
             ])
     }
@@ -677,6 +776,222 @@ impl Component for WinWam {
 impl WinWam {
     fn current_flavor_slug(&self) -> &'static str {
         GAME_FLAVORS[self.selected_flavor].slug
+    }
+
+    fn remember_current_page(&mut self) {
+        if let Some(page) = page_slug(self.page) {
+            self.last_pages
+                .insert(self.current_flavor_slug().to_string(), page.to_string());
+            self.persist_settings();
+        }
+    }
+
+    fn active_catalog_surface_mut(&mut self) -> Option<&mut CatalogSurfaceState> {
+        active_catalog_surface_mut(
+            self.page,
+            self.selected_flavor,
+            &mut self.discover_surfaces,
+            &mut self.installed_surfaces,
+        )
+    }
+
+    fn update_status_text(&self) -> String {
+        match &self.update_status {
+            UpdateStatus::Idle => String::new(),
+            UpdateStatus::Checking => "Checking…".to_string(),
+            UpdateStatus::Current => "Last checked: just now".to_string(),
+            UpdateStatus::Failed(_) => "Could not check for updates".to_string(),
+        }
+    }
+
+    fn game_panel_view(&self, context: &ViewContext<Self>) -> View {
+        let palette = theme::palette(self.selected_flavor);
+        let checking = matches!(self.update_status, UpdateStatus::Checking);
+        let update_label = if checking {
+            "Checking…"
+        } else {
+            "Check for Updates"
+        };
+        let update_enabled = !self.wow_folder_missing && !checking;
+        let availability: View = if self.directory_error.is_none() {
+            TextBlock::new()
+                .text(format!(
+                    "{} addons available.",
+                    self.source_list.addons.len()
+                ))
+                .font_size(theme::META_SIZE)
+                .foreground(palette.status_ok)
+                .into()
+        } else {
+            Border::new().height(0.0).into()
+        };
+        let accent_glow = Color::argb(
+            0x2E,
+            palette.accent.r,
+            palette.accent.g,
+            palette.accent.b,
+        );
+        Border::new()
+            .grid_column(0)
+            .background(palette.sidebar_bg)
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .vertical_alignment(VerticalAlignment::Stretch)
+            .content(
+                Grid::new()
+                    .rows([GridLength::STAR, GridLength::Auto])
+                    .children((
+                        Grid::new().grid_row(0).children((
+                            Border::new()
+                                .background(palette.app_bg)
+                                .horizontal_alignment(HorizontalAlignment::Stretch)
+                                .vertical_alignment(VerticalAlignment::Stretch),
+                            Border::new()
+                                .width(280.0)
+                                .height(280.0)
+                                .corner_radius(140.0)
+                                .background(accent_glow)
+                                .horizontal_alignment(HorizontalAlignment::Center)
+                                .vertical_alignment(VerticalAlignment::Top)
+                                .margin(Thickness::new(0.0, 24.0, 0.0, 0.0)),
+                            Border::new()
+                                .height(180.0)
+                                .background(palette.sidebar_bg)
+                                .vertical_alignment(VerticalAlignment::Bottom)
+                                .horizontal_alignment(HorizontalAlignment::Stretch),
+                            theme::sku_flair(self.selected_flavor),
+                        )),
+                        StackPanel::new()
+                            .grid_row(1)
+                            .spacing(8.0)
+                            .margin(Thickness::new(26.0, 18.0, 26.0, 26.0))
+                            .children((
+                                TextBlock::new()
+                                    .text("GAME VERSION")
+                                    .font_size(theme::META_SIZE)
+                                    .font_weight(FontWeight::EXTRA_BOLD)
+                                    .foreground(palette.text_muted),
+                                Button::new()
+                                    .style(ButtonStyle::Subtle)
+                                    .resource_overrides(theme::combo_box_resources(palette))
+                                    .horizontal_alignment(HorizontalAlignment::Stretch)
+                                    .content(
+                                        ComboBox::new()
+                                            .horizontal_alignment(HorizontalAlignment::Stretch)
+                                            .height(theme::CONTROL_HEIGHT)
+                                            .items_source(GAME_FLAVORS.map(|flavor| flavor.label))
+                                            .selected_index(self.selected_flavor)
+                                            .is_enabled(self.installing_addon_ids.is_empty())
+                                            .on_selection_changed(
+                                                context.callback(Message::SelectFlavor),
+                                            ),
+                                    ),
+                                Grid::new()
+                                    .columns([
+                                        GridLength::STAR,
+                                        GridLength::Pixel(theme::SETTINGS_BUTTON_SIZE),
+                                    ])
+                                    .column_spacing(8.0)
+                                    .children((
+                                        theme::accent_button(palette, update_label)
+                                            .height(theme::CONTROL_HEIGHT)
+                                            .horizontal_alignment(HorizontalAlignment::Stretch)
+                                            .enabled(update_enabled)
+                                            .on_click(
+                                                context.callback(|_| Message::CheckForUpdates),
+                                            ),
+                                        theme::icon_outline_button(palette, Symbol::Setting)
+                                            .grid_column(1)
+                                            .automation_name("Settings")
+                                            .on_click(context.callback(|_| {
+                                                Message::Navigate(Page::Settings)
+                                            })),
+                                    )),
+                                TextBlock::new()
+                                    .text(self.update_status_text())
+                                    .font_size(theme::META_SIZE)
+                                    .foreground(palette.text_muted),
+                                availability,
+                            )),
+                    )),
+            )
+    }
+
+    fn workshop_view(&self, context: &ViewContext<Self>) -> View {
+        let palette = theme::palette(self.selected_flavor);
+        let lesson: View = match self.workshop_screen {
+            WorkshopScreen::Overview => StackPanel::new()
+                .spacing(12.0)
+                .children((
+                    TextBlock::new()
+                        .text("START BUILDING")
+                        .font_size(theme::EYEBROW_SIZE)
+                        .font_weight(FontWeight::EXTRA_BOLD)
+                        .foreground(palette.accent),
+                    TextBlock::new()
+                        .text("Create your first addon.")
+                        .font_size(36.0)
+                        .font_weight(FontWeight::BOLD)
+                        .foreground(palette.text_primary)
+                        .text_wrapping(TextWrapping::Wrap),
+                    TextBlock::new()
+                        .text("Turn an idea into a working World of Warcraft addon. Learn what each file does, build useful features one step at a time, and test every change in-game.")
+                        .font_size(15.0)
+                        .text_wrapping(TextWrapping::Wrap)
+                        .foreground(palette.text_muted),
+                    theme::accent_button(palette, "Start learning")
+                        .height(theme::CONTROL_HEIGHT)
+                        .on_click(context.callback(|_| {
+                            Message::ShowWorkshopScreen(WorkshopScreen::Anatomy)
+                        })),
+                ))
+                .into(),
+            WorkshopScreen::Anatomy => StackPanel::new()
+                .spacing(12.0)
+                .children((
+                    TextBlock::new()
+                        .text("Anatomy lesson arrives in a later milestone.")
+                        .font_size(15.0)
+                        .text_wrapping(TextWrapping::Wrap)
+                        .foreground(palette.text_primary),
+                    theme::outline_button(palette, "Back to overview")
+                        .on_click(context.callback(|_| {
+                            Message::ShowWorkshopScreen(WorkshopScreen::Overview)
+                        })),
+                ))
+                .into(),
+        };
+        ScrollViewer::new()
+            .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
+            .content(
+                StackPanel::new()
+                    .spacing(16.0)
+                    .margin(Thickness::uniform(theme::PAGE_MARGIN))
+                    .children((
+                        lesson,
+                        Border::new()
+                            .background(palette.card_bg)
+                            .border_brush(palette.stroke)
+                            .border_thickness(1.0)
+                            .corner_radius(theme::CARD_RADIUS)
+                            .padding(Thickness::xy(13.0, 9.0))
+                            .content(
+                                StackPanel::new()
+                                    .orientation(Orientation::Horizontal)
+                                    .spacing(12.0)
+                                    .children((
+                                        TextBlock::new()
+                                            .text("Using AI assistance")
+                                            .font_weight(FontWeight::SEMI_BOLD)
+                                            .foreground(palette.accent),
+                                        TextBlock::new()
+                                            .text("Share the target game version, relevant API documentation, and exact errors. Ask for small explained changes, review the code, and test each step in-game. Never share account or personal information.")
+                                            .font_size(11.0)
+                                            .text_wrapping(TextWrapping::Wrap)
+                                            .foreground(palette.text_muted),
+                                    )),
+                            ),
+                    )),
+            )
     }
 
     fn managed_addon_ids(&self) -> BTreeSet<String> {
@@ -696,6 +1011,8 @@ impl WinWam {
             check_for_updates: self.check_for_updates,
             telemetry_level: self.telemetry_level,
             loadouts: self.loadouts.clone(),
+            last_pages: self.last_pages.clone(),
+            support_banner_dismissed: self.support_banner_dismissed,
         };
         if let Err(error) = persist::save(&settings) {
             logging::error(&format!("Could not save settings: {error}"));
@@ -858,9 +1175,14 @@ impl WinWam {
 
     fn browse_view(&self, context: &ViewContext<Self>) -> View {
         let palette = theme::palette(self.selected_flavor);
+        let surface = &self.discover_surfaces[self.selected_flavor];
         let categories = unique_categories(&self.source_list.addons);
-        let query = self.query.to_lowercase();
-        let selected_category = categories.get(self.category_filter);
+        let query = surface.query.to_lowercase();
+        let selected_category = surface
+            .category
+            .as_ref()
+            .filter(|category| categories.iter().any(|item| item == *category))
+            .or(categories.first());
         let mut addons: Vec<&Addon> = self
             .source_list
             .addons
@@ -933,7 +1255,7 @@ impl WinWam {
                 .column_spacing(12.0)
                 .children((
                     TextBox::new()
-                        .text(self.query.clone())
+                        .text(surface.query.clone())
                         .placeholder_text("Search addons...")
                         .on_text_changed(context.callback(Message::Search)),
                     ComboBox::new()
@@ -955,7 +1277,7 @@ impl WinWam {
                             palette,
                             category.clone(),
                             category_ribbon_icon(category),
-                            self.category_filter == index,
+                            selected_category.map(String::as_str) == Some(category.as_str()),
                         )
                         .on_click(context.callback(move |_| Message::SelectCategory(Some(index)))),
                     )
@@ -1058,7 +1380,7 @@ impl WinWam {
             "header",
             theme::page_header(
                 palette,
-                "Installed Addons",
+                "My Addons",
                 "Manage addons discovered from .toc files and WinWam markers",
             ),
         )];
@@ -1802,15 +2124,32 @@ fn discovered_addon_row(
 }
 
 fn message_is_error(message: &Message) -> bool {
-    matches!(message, Message::InstallFinished(_, Err(_)))
+    matches!(
+        message,
+        Message::InstallFinished(_, Err(_)) | Message::DirectoryRefreshFinished(_, Err(_))
+    )
 }
 
 fn message_telemetry(message: &Message) -> String {
     match message {
-        Message::Navigate(Page::Browse) => "Navigation → Browse".to_string(),
+        Message::Navigate(Page::Discover) => "Navigation → Discover".to_string(),
         Message::Navigate(Page::Installed) => "Navigation → Installed".to_string(),
         Message::Navigate(Page::Loadouts) => "Navigation → Loadouts".to_string(),
+        Message::Navigate(Page::Workshop) => "Navigation → Workshop".to_string(),
         Message::Navigate(Page::Settings) => "Navigation → Settings".to_string(),
+        Message::CheckForUpdates => "Check for updates requested".to_string(),
+        Message::DirectoryRefreshFinished(_, Ok(_)) => {
+            "Directory refresh completed".to_string()
+        }
+        Message::DirectoryRefreshFinished(_, Err(error)) => {
+            format!("Directory refresh failed · {error}")
+        }
+        Message::ShowWorkshopScreen(WorkshopScreen::Overview) => {
+            "Workshop → Overview".to_string()
+        }
+        Message::ShowWorkshopScreen(WorkshopScreen::Anatomy) => {
+            "Workshop → Anatomy".to_string()
+        }
         Message::Search(query) => format!("Search changed · {} characters", query.len()),
         Message::SelectFlavor(index) => format!("SKU selection changed · {index:?}"),
         Message::SelectCategory(index) => format!("Category selection changed · {index:?}"),
@@ -1874,7 +2213,7 @@ fn category_ribbon_icon(category: &str) -> Option<&'static [u8]> {
 
 fn browse_page_size(size: WindowSize) -> usize {
     let content_width =
-        (size.width - theme::SIDEBAR_WIDTH - theme::PAGE_MARGIN * 2.0).clamp(340.0, 1800.0);
+        (size.width - theme::GAME_PANEL_WIDTH - theme::PAGE_MARGIN * 2.0).clamp(340.0, 1800.0);
     let content_height = (size.height - 270.0).max(200.0);
     let columns = (content_width / 340.0).floor().max(1.0) as usize;
     let rows = (content_height / 200.0).floor().max(1.0) as usize;
@@ -1896,6 +2235,58 @@ fn unique_categories(addons: &[Addon]) -> Vec<String> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+
+fn initial_page(missing: bool, last: Option<&str>) -> Page {
+    if missing {
+        Page::Settings
+    } else {
+        page_from_slug(last).unwrap_or(Page::Installed)
+    }
+}
+
+fn page_from_slug(slug: Option<&str>) -> Option<Page> {
+    match slug? {
+        "discover" => Some(Page::Discover),
+        "installed" => Some(Page::Installed),
+        "loadouts" => Some(Page::Loadouts),
+        "workshop" => Some(Page::Workshop),
+        _ => None,
+    }
+}
+
+fn page_slug(page: Page) -> Option<&'static str> {
+    match page {
+        Page::Discover => Some("discover"),
+        Page::Installed => Some("installed"),
+        Page::Loadouts => Some("loadouts"),
+        Page::Workshop => Some("workshop"),
+        Page::Settings => None,
+    }
+}
+
+fn active_catalog_surface_mut<'a>(
+    page: Page,
+    flavor: usize,
+    discover: &'a mut [CatalogSurfaceState; 5],
+    installed: &'a mut [CatalogSurfaceState; 5],
+) -> Option<&'a mut CatalogSurfaceState> {
+    match page {
+        Page::Discover => discover.get_mut(flavor),
+        Page::Installed => installed.get_mut(flavor),
+        _ => None,
+    }
+}
+
+fn apply_directory_result(
+    current: AddonSourceList,
+    result: Result<AddonSourceList, String>,
+) -> (AddonSourceList, Option<String>) {
+    match result {
+        Ok(source_list) => (source_list, None),
+        Err(error) => (current, Some(error)),
+    }
 }
 
 fn flavor_index_from_slug(slug: &str) -> usize {
@@ -2115,6 +2506,111 @@ mod tests {
         assert_eq!(flavor_index_from_slug("classic"), 2);
         assert_eq!(flavor_index_from_slug(" MoP-Classic "), 1);
         assert_eq!(flavor_index_from_slug("unknown"), 0);
+    }
+
+    fn sample_addon(id: &str) -> Addon {
+        Addon {
+            id: id.into(),
+            name: id.into(),
+            summary: "Bags".into(),
+            author: "Northwind Labs".into(),
+            source_kind: "GitHub".into(),
+            host: "github.com".into(),
+            owner: "winwam-test".into(),
+            repo: id.into(),
+            version: None,
+            homepage: None,
+            category: "Bags".into(),
+            tags: vec!["inventory".into()],
+        }
+    }
+
+    fn sample_source_list(ids: &[&str]) -> AddonSourceList {
+        AddonSourceList {
+            schema_version: "1.0".into(),
+            directory: DirectoryInfo {
+                name: "test".into(),
+                repository: "https://github.com/bitobrian/wow-addons-directory".into(),
+                description: None,
+            },
+            flavor: "Retail".into(),
+            addons: ids.iter().copied().map(sample_addon).collect(),
+        }
+    }
+
+    #[test]
+    fn initial_page_defaults_to_installed() {
+        assert_eq!(initial_page(true, Some("discover")), Page::Settings);
+        assert_eq!(initial_page(false, None), Page::Installed);
+        assert_eq!(initial_page(false, Some("discover")), Page::Discover);
+        assert_eq!(initial_page(false, Some("settings")), Page::Installed);
+        assert_eq!(initial_page(false, Some("workshop")), Page::Workshop);
+    }
+
+    #[test]
+    fn sku_switch_restores_per_slug_page() {
+        let mut last_pages = BTreeMap::from([
+            ("retail".to_string(), "discover".to_string()),
+            ("forever".to_string(), "workshop".to_string()),
+        ]);
+        assert_eq!(
+            initial_page(false, last_pages.get("retail").map(String::as_str)),
+            Page::Discover
+        );
+        last_pages.insert("retail".to_string(), page_slug(Page::Loadouts).unwrap().into());
+        assert_eq!(
+            initial_page(false, last_pages.get("forever").map(String::as_str)),
+            Page::Workshop
+        );
+        assert_eq!(
+            initial_page(true, last_pages.get("forever").map(String::as_str)),
+            Page::Settings
+        );
+        assert_eq!(
+            initial_page(false, last_pages.get("retail").map(String::as_str)),
+            Page::Loadouts
+        );
+    }
+
+    #[test]
+    fn catalog_surfaces_stay_independent() {
+        let mut discover = std::array::from_fn(|_| CatalogSurfaceState::default());
+        let mut installed = std::array::from_fn(|_| CatalogSurfaceState::default());
+        active_catalog_surface_mut(Page::Discover, 0, &mut discover, &mut installed)
+            .unwrap()
+            .query = "bags".into();
+        active_catalog_surface_mut(Page::Installed, 0, &mut discover, &mut installed)
+            .unwrap()
+            .query = "raid".into();
+        active_catalog_surface_mut(Page::Discover, 4, &mut discover, &mut installed)
+            .unwrap()
+            .query = "quest".into();
+        assert_eq!(discover[0].query, "bags");
+        assert_eq!(installed[0].query, "raid");
+        assert_eq!(discover[4].query, "quest");
+        assert!(installed[4].query.is_empty());
+        assert!(active_catalog_surface_mut(Page::Workshop, 0, &mut discover, &mut installed).is_none());
+    }
+
+    #[test]
+    fn apply_directory_result_keeps_nonempty_catalog() {
+        let current = sample_source_list(&["arcane-alerts", "bag-commander"]);
+        let (kept, error) =
+            apply_directory_result(current, Err("network down".to_string()));
+        assert_eq!(kept.addons.len(), 2);
+        assert_eq!(kept.addons[0].id, "arcane-alerts");
+        assert_eq!(error.as_deref(), Some("network down"));
+
+        let empty = sample_source_list(&[]);
+        let (kept_empty, error) =
+            apply_directory_result(empty, Err("network down".to_string()));
+        assert!(kept_empty.addons.is_empty());
+        assert!(error.is_some());
+
+        let (replaced, error) =
+            apply_directory_result(sample_source_list(&["old"]), Ok(sample_source_list(&["new"])));
+        assert_eq!(replaced.addons[0].id, "new");
+        assert!(error.is_none());
     }
 
     #[test]

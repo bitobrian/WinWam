@@ -11,15 +11,48 @@ pub struct Palette {
     pub text_primary: Color,
     pub text_muted: Color,
     pub tile_bg: Color,
+    pub status_ok: Color,
+    #[allow(dead_code)]
+    pub overlay: Color,
 }
 
-pub const SIDEBAR_WIDTH: f64 = 220.0;
+pub const REFERENCE_CLIENT_WIDTH: f64 = 1440.0;
+pub const REFERENCE_CLIENT_HEIGHT: f64 = 856.0;
+pub const MIN_CLIENT_WIDTH: f64 = 1400.0;
+pub const MIN_CLIENT_HEIGHT: f64 = 832.0;
+#[allow(dead_code)]
+pub const HEADER_HEIGHT: f64 = 70.0;
+pub const GAME_PANEL_WIDTH: f64 = 280.0;
 /// `Thickness::uniform` is not `const` in windows-reactor 0.100.
 pub const PAGE_MARGIN: f64 = 24.0;
-pub const CARD_RADIUS: f64 = 8.0;
+#[allow(dead_code)]
+pub const RIBBON_HEIGHT: f64 = 82.0;
+pub const CARD_RADIUS: f64 = 5.0;
+#[allow(dead_code)]
+pub const CARD_GAP: f64 = 12.0;
+pub const CONTROL_HEIGHT: f64 = 42.0;
+pub const SETTINGS_BUTTON_SIZE: f64 = 44.0;
+#[allow(dead_code)]
+pub const MODAL_WIDTH: f64 = 760.0;
+#[allow(dead_code)]
+pub const MODAL_SIDEBAR_WIDTH: f64 = 250.0;
+#[allow(dead_code)]
+pub const FOCUS_RING: f64 = 2.0;
 pub const TITLE_SIZE: f64 = 28.0;
 pub const SUBTITLE_SIZE: f64 = 14.0;
 pub const ROW_NAME_SIZE: f64 = 16.0;
+pub const BRAND_SIZE: f64 = 20.0;
+pub const TOPNAV_WEIGHT: FontWeight = FontWeight::BOLD;
+pub const EYEBROW_SIZE: f64 = 11.0;
+#[allow(dead_code)]
+pub const SECTION_TITLE_SIZE: f64 = 22.0;
+#[allow(dead_code)]
+pub const CARD_TITLE_SIZE: f64 = 15.0;
+pub const META_SIZE: f64 = 12.0;
+#[allow(dead_code)]
+pub const CODE_SIZE: f64 = 12.0;
+pub const STATUS_OK: Color = Color::rgb(0x7B, 0xD4, 0x00);
+pub const OVERLAY: Color = Color::argb(0xD9, 0x05, 0x08, 0x0B);
 
 // Each SKU palette is authored here. The accent is the central identity color;
 // the surrounding surfaces are tinted to support it while preserving contrast.
@@ -35,6 +68,8 @@ pub const SKU_PALETTES: [Palette; 5] = [
         text_primary: Color::rgb(0xF1, 0xEF, 0xF3),
         text_muted: Color::rgb(0xA8, 0xA2, 0xAE),
         tile_bg: Color::rgb(0x2B, 0x27, 0x32),
+        status_ok: STATUS_OK,
+        overlay: OVERLAY,
     },
     Palette {
         // Mists of Pandaria: jade
@@ -47,6 +82,8 @@ pub const SKU_PALETTES: [Palette; 5] = [
         text_primary: Color::rgb(0xEE, 0xF3, 0xF1),
         text_muted: Color::rgb(0x9F, 0xAE, 0xA9),
         tile_bg: Color::rgb(0x27, 0x34, 0x31),
+        status_ok: STATUS_OK,
+        overlay: OVERLAY,
     },
     Palette {
         // Classic: cool forged metal
@@ -59,6 +96,8 @@ pub const SKU_PALETTES: [Palette; 5] = [
         text_primary: Color::rgb(0xEF, 0xF0, 0xF2),
         text_muted: Color::rgb(0x9F, 0xA4, 0xAA),
         tile_bg: Color::rgb(0x2C, 0x31, 0x36),
+        status_ok: STATUS_OK,
+        overlay: OVERLAY,
     },
     Palette {
         // Burning Crusade: fel green
@@ -71,6 +110,8 @@ pub const SKU_PALETTES: [Palette; 5] = [
         text_primary: Color::rgb(0xEF, 0xF2, 0xEC),
         text_muted: Color::rgb(0xA4, 0xAE, 0x9D),
         tile_bg: Color::rgb(0x2C, 0x35, 0x26),
+        status_ok: STATUS_OK,
+        overlay: OVERLAY,
     },
     Palette {
         // Forever: sky blue (reserved for the upcoming SKU)
@@ -83,6 +124,8 @@ pub const SKU_PALETTES: [Palette; 5] = [
         text_primary: Color::rgb(0xED, 0xF1, 0xF3),
         text_muted: Color::rgb(0x9C, 0xAA, 0xB2),
         tile_bg: Color::rgb(0x26, 0x33, 0x3A),
+        status_ok: STATUS_OK,
+        overlay: OVERLAY,
     },
 ];
 
@@ -100,8 +143,7 @@ pub fn sku_flair(sku: usize) -> View {
     match bytes {
         Some(bytes) => Image::new()
             .source_data(EncodedImage::from_static(bytes))
-            .width(176.0)
-            .height(142.0)
+            .width(230.0)
             .stretch(Stretch::Uniform)
             .horizontal_alignment(HorizontalAlignment::Center)
             .margin(Thickness::new(12.0, 8.0, 12.0, 12.0))
@@ -141,6 +183,26 @@ impl ThemedButton {
         self.button = self.button.min_width(value);
         self
     }
+
+    pub fn width(mut self, value: f64) -> Self {
+        self.button = self.button.width(value);
+        self
+    }
+
+    pub fn height(mut self, value: f64) -> Self {
+        self.button = self.button.height(value);
+        self
+    }
+
+    pub fn horizontal_alignment(mut self, value: HorizontalAlignment) -> Self {
+        self.button = self.button.horizontal_alignment(value);
+        self
+    }
+
+    pub fn automation_name(mut self, value: impl Into<String>) -> Self {
+        self.button = self.button.automation_name(value);
+        self
+    }
 }
 
 impl From<ThemedButton> for View {
@@ -175,6 +237,50 @@ pub fn outline_button(palette: &Palette, label: impl Into<String>) -> ThemedButt
     }
 }
 
+pub fn topnav_button(palette: &Palette, label: impl Into<String>, selected: bool) -> ThemedButton {
+    let foreground = if selected {
+        palette.text_primary
+    } else {
+        palette.text_muted
+    };
+    ThemedButton {
+        button: Button::new()
+            .style(ButtonStyle::Subtle)
+            .vertical_alignment(VerticalAlignment::Stretch)
+            .vertical_content_alignment(VerticalAlignment::Stretch)
+            .horizontal_content_alignment(HorizontalAlignment::Center),
+        content: Grid::new().children((
+            TextBlock::new()
+                .text(label.into())
+                .font_weight(TOPNAV_WEIGHT)
+                .foreground(foreground)
+                .vertical_alignment(VerticalAlignment::Center)
+                .horizontal_alignment(HorizontalAlignment::Center),
+            Border::new()
+                .height(3.0)
+                .vertical_alignment(VerticalAlignment::Bottom)
+                .horizontal_alignment(HorizontalAlignment::Stretch)
+                .background(if selected {
+                    palette.accent
+                } else {
+                    Color::argb(0, 0, 0, 0)
+                }),
+        )),
+    }
+}
+
+pub fn icon_outline_button(palette: &Palette, symbol: Symbol) -> ThemedButton {
+    ThemedButton {
+        button: Button::new()
+            .style(ButtonStyle::Default)
+            .resource_overrides(outline_resources(palette))
+            .width(SETTINGS_BUTTON_SIZE)
+            .height(SETTINGS_BUTTON_SIZE),
+        content: SymbolIcon::new().symbol(symbol).into(),
+    }
+}
+
+#[allow(dead_code)]
 pub fn nav_button(
     palette: &Palette,
     label: impl Into<String>,
