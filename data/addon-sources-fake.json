@@ -1,0 +1,588 @@
+{
+  "$schema": "./addon-sources.schema.json",
+  "schemaVersion": "1.0",
+  "directory": {
+    "name": "WinWam Open Addon Directory",
+    "repository": "https://github.com/winwam/directory",
+    "description": "Synthetic development data for the community-maintained open-source addon directory."
+  },
+  "addons": [
+    {
+      "id": "arcane-alerts",
+      "name": "Arcane Alerts",
+      "summary": "Configurable combat notifications with cooldown tracking and priority-based alerts.",
+      "author": "Northwind Labs",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "arcane-alerts",
+      "category": "Combat",
+      "tags": [
+        "alerts",
+        "cooldowns",
+        "combat"
+      ]
+    },
+    {
+      "id": "raid-compass",
+      "name": "Raid Compass",
+      "summary": "A clean encounter dashboard for assignments, markers, timers, and ready checks.",
+      "author": "Waypoint Works",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "raid-compass",
+      "category": "Raiding",
+      "tags": [
+        "raid",
+        "timers",
+        "assignments"
+      ]
+    },
+    {
+      "id": "dungeon-route-kit",
+      "name": "Dungeon Route Kit",
+      "summary": "Plan dungeon pulls, annotate routes, and share strategies with your group.",
+      "author": "Keystone Collective",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "dungeon-route-kit",
+      "category": "Dungeons",
+      "tags": [
+        "routes",
+        "mythic-plus",
+        "dungeons"
+      ]
+    },
+    {
+      "id": "clearframe",
+      "name": "ClearFrame",
+      "summary": "A restrained interface replacement focused on readable information and flexible layouts.",
+      "author": "Pixel Foundry",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "clearframe",
+      "category": "Interface",
+      "tags": [
+        "ui",
+        "layout",
+        "minimal"
+      ]
+    },
+    {
+      "id": "pocket-sorter",
+      "name": "Pocket Sorter",
+      "summary": "Search, group, and automatically organize inventory across bags and characters.",
+      "author": "Copper Byte",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "pocket-sorter",
+      "category": "Bags",
+      "tags": [
+        "bags",
+        "inventory",
+        "search"
+      ]
+    },
+    {
+      "id": "market-watch",
+      "name": "Market Watch",
+      "summary": "Tracks auction prices and highlights useful buying and selling opportunities.",
+      "author": "Ledger House",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "market-watch",
+      "category": "Economy",
+      "tags": [
+        "auction",
+        "prices",
+        "economy"
+      ]
+    },
+    {
+      "id": "mount-journal-plus",
+      "name": "Mount Journal Plus",
+      "summary": "Adds collection goals, progress filters, and favorites to mount hunting.",
+      "author": "Blue Griffin",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "mount-journal-plus",
+      "category": "Collections",
+      "tags": [
+        "mounts",
+        "collection",
+        "journal"
+      ]
+    },
+    {
+      "id": "quest-lantern",
+      "name": "Quest Lantern",
+      "summary": "Improves quest tracking with map hints, route ordering, and completion summaries.",
+      "author": "Trail Marker",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "quest-lantern",
+      "category": "Quests",
+      "tags": [
+        "quests",
+        "map",
+        "classic"
+      ]
+    },
+    {
+      "id": "plate-signal",
+      "name": "Plate Signal",
+      "summary": "Lightweight nameplates with threat colors, cast emphasis, and aura indicators.",
+      "author": "Signal Forge",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "plate-signal",
+      "category": "Nameplates",
+      "tags": [
+        "nameplates",
+        "threat",
+        "casts"
+      ]
+    },
+    {
+      "id": "action-deck",
+      "name": "Action Deck",
+      "summary": "Move, scale, page, and style action bars with a compact configuration panel.",
+      "author": "Hotkey Studio",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "action-deck",
+      "category": "ActionBars",
+      "tags": [
+        "action-bars",
+        "hotkeys",
+        "ui"
+      ]
+    },
+    {
+      "id": "unit-glance",
+      "name": "Unit Glance",
+      "summary": "Compact player, target, party, and raid frames designed for fast scanning.",
+      "author": "Quiet Pixel",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "unit-glance",
+      "category": "UnitFrames",
+      "tags": [
+        "unit-frames",
+        "raid-frames",
+        "healing"
+      ]
+    },
+    {
+      "id": "quick-loot",
+      "name": "Quick Loot",
+      "summary": "Speeds up loot windows and provides clear summaries of recently acquired items.",
+      "author": "Swift Tools",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "quick-loot",
+      "category": "QualityOfLife",
+      "tags": [
+        "loot",
+        "qol",
+        "history"
+      ]
+    },
+    {
+      "id": "story-profile",
+      "name": "Story Profile",
+      "summary": "Character profiles, relationship notes, and configurable roleplay tooltips.",
+      "author": "Silver Quill",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "story-profile",
+      "category": "Roleplay",
+      "tags": [
+        "roleplay",
+        "profiles",
+        "tooltips"
+      ]
+    },
+    {
+      "id": "shared-media-core",
+      "name": "Shared Media Core",
+      "summary": "A small shared library for fonts, sounds, textures, and status-bar assets.",
+      "author": "Open UI Guild",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "shared-media-core",
+      "category": "Libraries",
+      "tags": [
+        "library",
+        "media",
+        "ui"
+      ]
+    },
+    {
+      "id": "addon-console",
+      "name": "Addon Console",
+      "summary": "Developer utilities for event inspection, saved-variable browsing, and error reports.",
+      "author": "Lua Workshop",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "addon-console",
+      "category": "Development",
+      "tags": [
+        "development",
+        "debug",
+        "events"
+      ]
+    },
+    {
+      "id": "cooldown-radar",
+      "name": "Cooldown Radar",
+      "summary": "Shows important party cooldowns in a compact, role-aware panel.",
+      "author": "Northwind Labs",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "cooldown-radar",
+      "category": "Combat",
+      "tags": [
+        "cooldowns",
+        "party",
+        "combat"
+      ]
+    },
+    {
+      "id": "pull-timer-pro",
+      "name": "Pull Timer Pro",
+      "summary": "Coordinates pull timers, break timers, and encounter countdowns across raids.",
+      "author": "Waypoint Works",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "pull-timer-pro",
+      "category": "Raiding",
+      "tags": [
+        "raid",
+        "countdown",
+        "coordination"
+      ]
+    },
+    {
+      "id": "keystone-notes",
+      "name": "Keystone Notes",
+      "summary": "Attach concise strategy notes and reminders to every Mythic dungeon encounter.",
+      "author": "Keystone Collective",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "keystone-notes",
+      "category": "Dungeons",
+      "tags": [
+        "mythic-plus",
+        "notes",
+        "dungeons"
+      ]
+    },
+    {
+      "id": "minimal-map",
+      "name": "Minimal Map",
+      "summary": "A modern minimap with simple tracking controls and configurable information widgets.",
+      "author": "Pixel Foundry",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "minimal-map",
+      "category": "Interface",
+      "tags": [
+        "minimap",
+        "ui",
+        "widgets"
+      ]
+    },
+    {
+      "id": "alt-inventory",
+      "name": "Alt Inventory",
+      "summary": "Search bags, banks, mail, and currencies across every character on the account.",
+      "author": "Copper Byte",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "alt-inventory",
+      "category": "Bags",
+      "tags": [
+        "alts",
+        "inventory",
+        "bank"
+      ]
+    },
+    {
+      "id": "crafting-ledger",
+      "name": "Crafting Ledger",
+      "summary": "Tracks crafting costs, reagent inventory, and recipe profitability.",
+      "author": "Ledger House",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "crafting-ledger",
+      "category": "Economy",
+      "tags": [
+        "crafting",
+        "reagents",
+        "profit"
+      ]
+    },
+    {
+      "id": "pet-battle-notes",
+      "name": "Pet Battle Notes",
+      "summary": "Collection filters, matchup notes, and team presets for pet battles.",
+      "author": "Blue Griffin",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "pet-battle-notes",
+      "category": "Collections",
+      "tags": [
+        "pets",
+        "collection",
+        "teams"
+      ]
+    },
+    {
+      "id": "objective-path",
+      "name": "Objective Path",
+      "summary": "Orders active quest objectives into a practical route through each zone.",
+      "author": "Trail Marker",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "objective-path",
+      "category": "Quests",
+      "tags": [
+        "quests",
+        "routing",
+        "zones"
+      ]
+    },
+    {
+      "id": "clean-plates",
+      "name": "Clean Plates",
+      "summary": "Accessible nameplates with high-contrast states and minimal configuration.",
+      "author": "Signal Forge",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "clean-plates",
+      "category": "Nameplates",
+      "tags": [
+        "nameplates",
+        "accessibility",
+        "minimal"
+      ]
+    },
+    {
+      "id": "keybind-overlay",
+      "name": "Keybind Overlay",
+      "summary": "Displays and edits key bindings directly on action buttons.",
+      "author": "Hotkey Studio",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "keybind-overlay",
+      "category": "ActionBars",
+      "tags": [
+        "keybinds",
+        "action-bars",
+        "overlay"
+      ]
+    },
+    {
+      "id": "healer-grid",
+      "name": "Healer Grid",
+      "summary": "Responsive raid frames with click casting and configurable status indicators.",
+      "author": "Quiet Pixel",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "healer-grid",
+      "category": "UnitFrames",
+      "tags": [
+        "healing",
+        "raid-frames",
+        "click-casting"
+      ]
+    },
+    {
+      "id": "vendor-helper",
+      "name": "Vendor Helper",
+      "summary": "Repairs gear, sells configured junk, and summarizes vendor transactions.",
+      "author": "Swift Tools",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "vendor-helper",
+      "category": "QualityOfLife",
+      "tags": [
+        "vendor",
+        "repair",
+        "qol"
+      ]
+    },
+    {
+      "id": "dialogue-stage",
+      "name": "Dialogue Stage",
+      "summary": "Improves dialogue presentation with character portraits and readable conversation history.",
+      "author": "Silver Quill",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "dialogue-stage",
+      "category": "Roleplay",
+      "tags": [
+        "roleplay",
+        "dialogue",
+        "history"
+      ]
+    },
+    {
+      "id": "config-kit",
+      "name": "Config Kit",
+      "summary": "Reusable controls and persistence helpers for addon configuration windows.",
+      "author": "Open UI Guild",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "config-kit",
+      "category": "Libraries",
+      "tags": [
+        "library",
+        "configuration",
+        "controls"
+      ]
+    },
+    {
+      "id": "event-tracer",
+      "name": "Event Tracer",
+      "summary": "Records filtered game events and exports readable diagnostic timelines.",
+      "author": "Lua Workshop",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "event-tracer",
+      "category": "Development",
+      "tags": [
+        "development",
+        "events",
+        "diagnostics"
+      ]
+    },
+    {
+      "id": "interrupt-board",
+      "name": "Interrupt Board",
+      "summary": "Tracks interrupt rotations and availability for parties and raids.",
+      "author": "Northwind Labs",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "interrupt-board",
+      "category": "Combat",
+      "tags": [
+        "interrupts",
+        "combat",
+        "party"
+      ]
+    },
+    {
+      "id": "raid-roster-tools",
+      "name": "Raid Roster Tools",
+      "summary": "Manages signups, attendance notes, role balance, and bench rotations.",
+      "author": "Waypoint Works",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "raid-roster-tools",
+      "category": "Raiding",
+      "tags": [
+        "roster",
+        "attendance",
+        "raid"
+      ]
+    },
+    {
+      "id": "weekly-planner",
+      "name": "Weekly Planner",
+      "summary": "Collects lockouts, vault progress, currencies, and weekly objectives in one view.",
+      "author": "Swift Tools",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "weekly-planner",
+      "category": "QualityOfLife",
+      "tags": [
+        "weekly",
+        "lockouts",
+        "planner"
+      ]
+    },
+    {
+      "id": "transmog-checklist",
+      "name": "Transmog Checklist",
+      "summary": "Builds appearance wish lists and tracks collection progress by source.",
+      "author": "Blue Griffin",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "transmog-checklist",
+      "category": "Collections",
+      "tags": [
+        "transmog",
+        "collection",
+        "checklist"
+      ]
+    },
+    {
+      "id": "classic-castbars",
+      "name": "Classic Castbars",
+      "summary": "Adds reliable target and nameplate cast bars for Classic clients.",
+      "author": "Signal Forge",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "classic-castbars",
+      "category": "Nameplates",
+      "tags": [
+        "classic",
+        "castbars",
+        "nameplates"
+      ]
+    },
+    {
+      "id": "lua-profiler-lite",
+      "name": "Lua Profiler Lite",
+      "summary": "Surfaces addon CPU time, memory changes, and expensive event handlers.",
+      "author": "Lua Workshop",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "lua-profiler-lite",
+      "category": "Development",
+      "tags": [
+        "development",
+        "profiling",
+        "performance"
+      ]
+    }
+  ],
+  "flavor": "Retail"
+}

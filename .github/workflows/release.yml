@@ -1,0 +1,96 @@
+name: Build and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (leave blank to use v<Cargo.toml version>)"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark this as a prerelease"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Windows x64 release
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install stable Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Resolve release information
+        id: release_info
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $version = $metadata.packages[0].version
+          $tag = $env:REQUESTED_TAG.Trim()
+
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            $tag = "v$version"
+          }
+
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Release tag '$tag' must look like v1.2.3."
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "asset_name=WinWam-$version-windows-x64" >> $env:GITHUB_OUTPUT
+
+      - name: Build release executable
+        run: cargo build --locked --release
+
+      - name: Package release
+        id: package
+        shell: pwsh
+        env:
+          ASSET_NAME: ${{ steps.release_info.outputs.asset_name }}
+        run: |
+          $staging = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
+          $archive = Join-Path $env:RUNNER_TEMP "$($env:ASSET_NAME).zip"
+
+          New-Item -ItemType Directory -Path $staging | Out-Null
+          Copy-Item target\release\winwam.exe (Join-Path $staging 'WinWam.exe')
+          Copy-Item README.md, LICENSE -Destination $staging
+          Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive
+
+          "archive=$archive" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.release_info.outputs.asset_name }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag }}
+          name: WinWam ${{ steps.release_info.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          prerelease: ${{ inputs.prerelease }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          files: ${{ steps.package.outputs.archive }}
