@@ -75,7 +75,7 @@ The executable is written to `target/release/winwam.exe`.
 ### Build and deploy locally
 
 The deployment script creates `C:\apps\WinWam` when needed and copies
-`WinWam.exe`, `README.md`, and `LICENSE` into it:
+`WinWam.exe`, `README.md`, `LICENSE`, and `PRIVACY.md` into it:
 
 ```powershell
 .\release.ps1
@@ -99,7 +99,6 @@ management workflows are still planned:
 - Updating and uninstalling addons
 - Scanning locally installed addons
 - Downloading addon releases
-- Persisting settings between launches
 - Creating and applying real loadouts
 - Checking for updates
 
@@ -195,6 +194,7 @@ executable.
 | `data/` | Development directory data and schema |
 | `assets/` | Application branding, SKU artwork, and generated images |
 | `scripts/` | Developer asset-preparation scripts |
+| `docs/` | Product planning and implementation documentation |
 | `poc/` | Early interface mockups and visual references |
 | `.github/workflows/` | GitHub Actions release automation |
 | `.vscode/` | Shared build and native-debug configuration |
@@ -206,15 +206,24 @@ You may provide a tag such as `v0.1.0` and choose whether the release is a
 prerelease.
 
 If the tag is blank, the workflow uses the package version from `Cargo.toml`.
-It builds a locked Windows x64 release, packages the executable with the README
-and license, uploads the ZIP as a workflow artifact, and creates or updates the
-matching GitHub Release. Re-running the workflow for the same tag replaces its
+It builds a locked Windows x64 release, packages the executable with the README,
+license, and privacy policy, uploads the ZIP as a workflow artifact, and creates
+or updates the matching GitHub Release. Re-running the workflow for the same tag replaces its
 ZIP.
+
+## Privacy
+
+See the [WinWam Privacy Policy](PRIVACY.md) for details about local data,
+diagnostics, and network requests.
 
 ## Project status
 
 WinWam is experimental and pre-1.0. APIs, file formats, visuals, and behavior
 may change as the real addon-management workflows are implemented.
+
+The native vNext implementation plan is tracked in the
+[vNext backlog](docs/vnext-backlog.md), with acceptance references to the
+before-and-after interface mockups under `poc/`.
 
 ## Stats for Nerds
 

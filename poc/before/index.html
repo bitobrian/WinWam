@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WinWam Addons — UI POC</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="titlebar">
+      <strong>WinWam</strong>
+      <label class="release-select">
+        <span class="sr-only">Game version</span>
+        <select id="releasePicker">
+          <option>Retail</option>
+          <option>Classic</option>
+          <option>Cataclysm Classic</option>
+        </select>
+      </label>
+      <div class="window-controls" aria-hidden="true"><span>─</span><span>□</span><span>×</span></div>
+    </header>
+
+    <aside class="sidebar">
+      <nav aria-label="Primary navigation">
+        <button class="nav-item active" data-view="browse"><span class="icon">⌕</span>Browse</button>
+        <button class="nav-item" data-view="installed"><span class="icon">⇩</span>Installed <span class="nav-count" id="navInstalled">(0)</span></button>
+        <button class="nav-item" data-view="loadouts"><span class="icon">♮</span>Loadouts</button>
+      </nav>
+      <img class="expansion-logo" src="../../assets/official-blizzard/WoW_Midnight_Eclipse_Logo.png" alt="World of Warcraft Midnight Eclipse">
+      <button class="settings"><span aria-hidden="true">⚙</span> Settings</button>
+    </aside>
+
+    <main class="content">
+      <section class="heading-row">
+        <div>
+          <h1 id="viewTitle">Browse Addons</h1>
+          <p id="viewSubtitle">Discover and install addons from the community</p>
+        </div>
+        <div class="stats" aria-live="polite">
+          <span id="pageStat">Page 1 of 6</span><span id="totalStat">50 addons</span><span id="installStat">0 installed</span>
+        </div>
+      </section>
+
+      <section class="toolbar" aria-label="Addon controls">
+        <input id="search" type="search" placeholder="Search addons…" autocomplete="off">
+        <select id="sort" aria-label="Sort addons">
+          <option value="name">Name</option>
+          <option value="author">Author</option>
+          <option value="category">Category</option>
+        </select>
+      </section>
+
+      <div class="categories" id="categories" role="group" aria-label="Filter by category"></div>
+      <section class="addon-grid" id="addonGrid" aria-live="polite"></section>
+      <p class="empty-state" id="emptyState" hidden>No addons match this view.</p>
+
+      <nav class="pagination" aria-label="Pagination">
+        <button id="previousPage">Previous</button>
+        <span id="pageRange">1–9 of 50</span>
+        <button id="nextPage">Next</button>
+      </nav>
+    </main>
+  </div>
+
+  <dialog id="detailsDialog">
+    <button class="dialog-close" aria-label="Close">×</button>
+    <div class="dialog-icon" id="dialogIcon">TA</div>
+    <p class="eyebrow" id="dialogCategory"></p>
+    <h2 id="dialogTitle"></h2>
+    <p id="dialogAuthor"></p>
+    <p id="dialogDescription"></p>
+    <button class="primary" id="dialogInstall"></button>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
