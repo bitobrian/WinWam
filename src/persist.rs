@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -7,7 +8,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::loadout::Loadout;
 
-pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
+pub const SETTINGS_SCHEMA_VERSION: u32 = 2;
+const KNOWN_FLAVOR_SLUGS: [&str; 5] = [
+    "retail",
+    "mop-classic",
+    "classic",
+    "bc-anniversary",
+    "forever",
+];
+const KNOWN_PAGE_SLUGS: [&str; 4] = ["discover", "installed", "loadouts", "workshop"];
 pub const DEFAULT_SOURCE_BASE_URL: &str =
     "https://raw.githubusercontent.com/bitobrian/wow-addons-directory/refs/heads/main";
 
@@ -28,6 +37,10 @@ pub struct AppSettings {
     pub telemetry_level: usize,
     #[serde(default)]
     pub loadouts: Vec<Loadout>,
+    #[serde(default)]
+    pub last_pages: BTreeMap<String, String>,
+    #[serde(default)]
+    pub support_banner_dismissed: bool,
 }
 
 impl Default for AppSettings {
@@ -40,6 +53,8 @@ impl Default for AppSettings {
             check_for_updates: true,
             telemetry_level: default_telemetry_level(),
             loadouts: Vec::new(),
+            last_pages: BTreeMap::new(),
+            support_banner_dismissed: false,
         }
     }
 }
@@ -63,8 +78,20 @@ impl AppSettings {
             check_for_updates: self.check_for_updates,
             telemetry_level: self.telemetry_level.min(3),
             loadouts: self.loadouts.clone(),
+            last_pages: sanitize_last_pages(&self.last_pages),
+            support_banner_dismissed: self.support_banner_dismissed,
         }
     }
+}
+
+fn sanitize_last_pages(pages: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    pages
+        .iter()
+        .filter(|(slug, page)| {
+            KNOWN_FLAVOR_SLUGS.contains(&slug.as_str()) && KNOWN_PAGE_SLUGS.contains(&page.as_str())
+        })
+        .map(|(slug, page)| (slug.clone(), page.clone()))
+        .collect()
 }
 
 pub fn settings_file() -> PathBuf {
@@ -180,5 +207,52 @@ mod tests {
     fn missing_file_returns_defaults() {
         let loaded = load_from(&temp_path("missing"));
         assert_eq!(loaded, AppSettings::default());
+    }
+
+    #[test]
+    fn sanitizes_last_pages() {
+        let settings = AppSettings {
+            last_pages: BTreeMap::from([
+                ("retail".to_string(), "discover".to_string()),
+                ("classic".to_string(), "settings".to_string()),
+                ("unknown".to_string(), "installed".to_string()),
+                ("forever".to_string(), "workshop".to_string()),
+                ("mop-classic".to_string(), "not-a-page".to_string()),
+            ]),
+            ..AppSettings::default()
+        }
+        .sanitized();
+        assert_eq!(
+            settings.last_pages,
+            BTreeMap::from([
+                ("retail".to_string(), "discover".to_string()),
+                ("forever".to_string(), "workshop".to_string()),
+            ])
+        );
+        assert!(!settings.support_banner_dismissed);
+    }
+
+    #[test]
+    fn loads_schema_v1_files_with_last_pages_defaults() {
+        let path = temp_path("v1");
+        fs::write(
+            &path,
+            r#"{
+                "schemaVersion": 1,
+                "sourceBaseUrl": "https://example.invalid/dir",
+                "wowFolder": "C:\\Games\\World of Warcraft",
+                "selectedFlavor": "classic",
+                "checkForUpdates": true,
+                "telemetryLevel": 2,
+                "loadouts": []
+            }"#,
+        )
+        .unwrap();
+        let loaded = load_from(&path);
+        fs::remove_file(&path).ok();
+        assert_eq!(loaded.schema_version, SETTINGS_SCHEMA_VERSION);
+        assert!(loaded.last_pages.is_empty());
+        assert!(!loaded.support_banner_dismissed);
+        assert_eq!(loaded.selected_flavor, "classic");
     }
 }
