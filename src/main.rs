@@ -1512,10 +1512,12 @@ impl WinWam {
                             .on_click(context.callback(|_| Message::ApplySettings)),
                         TextBlock::new()
                             .text(format!(
-                                "Directory v{} · {}",
+                                "Directory v{} · {} · Privacy: https://github.com/bitobrian/WinWam/blob/main/PRIVACY.md",
                                 self.source_list.schema_version,
                                 self.source_list.directory.repository
                             ))
+                            .font_size(11.0)
+                            .text_wrapping(TextWrapping::Wrap)
                             .foreground(palette.text_muted),
                     )),
             )

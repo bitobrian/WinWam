@@ -71,7 +71,7 @@ jobs:
 
           New-Item -ItemType Directory -Path $staging | Out-Null
           Copy-Item target\release\winwam.exe (Join-Path $staging 'WinWam.exe')
-          Copy-Item README.md, LICENSE -Destination $staging
+          Copy-Item README.md, LICENSE, PRIVACY.md -Destination $staging
           Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive
 
           "archive=$archive" >> $env:GITHUB_OUTPUT

@@ -27,5 +27,6 @@ if (-not (Test-Path -LiteralPath $destination -PathType Container)) {
 Copy-Item -LiteralPath $executable -Destination (Join-Path $destination 'WinWam.exe') -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination $destination -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $destination -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'PRIVACY.md') -Destination $destination -Force
 
 Write-Host "WinWam release copied to $destination"
