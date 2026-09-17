@@ -1,9 +1,6 @@
 name: Source CI
 
 on:
-  push:
-    paths:
-      - "src/**"
   pull_request:
     paths:
       - "src/**"
@@ -18,6 +15,7 @@ concurrency:
 jobs:
   build-and-lint:
     name: Build and lint
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: windows-latest
 
     steps:
