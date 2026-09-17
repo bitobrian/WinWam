@@ -49,6 +49,7 @@ PublishProfiles/
 dist/
 out/
 *.zip
+!data/fixtures/packages/*.zip
 
 # Test coverage, profiling, and logs
 coverage/

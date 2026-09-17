@@ -8,6 +8,7 @@ use std::{
 use windows_reactor::*;
 
 mod directory;
+mod install;
 mod loadout;
 mod logging;
 mod persist;
@@ -85,6 +86,12 @@ struct CatalogSurfaceState {
     category: Option<String>,
 }
 
+enum FsOp {
+    Install(String),
+    Uninstall(String),
+    ApplyLoadout(loadout::LoadoutPlan),
+}
+
 enum Message {
     Navigate(Page),
     Search(String),
@@ -102,6 +109,8 @@ enum Message {
     InstallAddon(String),
     InstallFinished(String, Result<(), String>),
     UninstallAddon(String),
+    UninstallFinished(String, Result<(), String>),
+    LoadoutApplyFinished(loadout::LoadoutApplyResult),
     ToggleAddonDetails(String),
     CloseAddonDetails,
     DismissSupportBanner,
@@ -137,6 +146,9 @@ struct WinWam {
     installed_addons: Vec<scan::InstalledAddon>,
     expanded_addon_id: Option<String>,
     installing_addon_ids: BTreeSet<String>,
+    fs_busy: bool,
+    fs_queue: VecDeque<FsOp>,
+    operation_results: BTreeMap<String, String>,
     hood_open: bool,
     telemetry_level: usize,
     telemetry_events: VecDeque<String>,
@@ -218,6 +230,9 @@ impl Component for WinWam {
             installed_addons,
             expanded_addon_id: None,
             installing_addon_ids: BTreeSet::new(),
+            fs_busy: false,
+            fs_queue: VecDeque::new(),
+            operation_results: BTreeMap::new(),
             hood_open: false,
             telemetry_level: settings.telemetry_level.min(3),
             telemetry_events: VecDeque::from(["WinWam telemetry stream ready".to_string()]),
@@ -277,6 +292,9 @@ impl Component for WinWam {
                 }
             }
             Message::RequestApplyLoadout(index) => {
+                if self.fs_busy {
+                    return;
+                }
                 if let Some(loadout) = self.loadouts.get(index).cloned() {
                     self.loadout_draft = None;
                     let removable = self.managed_addon_ids();
@@ -293,7 +311,28 @@ impl Component for WinWam {
                     });
                 }
             }
-            Message::ConfirmLoadoutPrompt => self.confirm_loadout_prompt(),
+            Message::ConfirmLoadoutPrompt => self.confirm_loadout_prompt(context),
+            Message::LoadoutApplyFinished(result) => {
+                for id in result
+                    .installed
+                    .iter()
+                    .chain(result.uninstalled.iter())
+                    .chain(result.failures.iter().map(|failure| &failure.id))
+                {
+                    self.installing_addon_ids.remove(id);
+                    if result.failures.iter().any(|failure| failure.id == *id) {
+                        continue;
+                    }
+                    self.operation_results.remove(id);
+                }
+                for failure in &result.failures {
+                    self.operation_results
+                        .insert(failure.id.clone(), failure.error.clone());
+                }
+                self.refresh_installed();
+                self.loadout_prompt = Some(LoadoutPrompt::Result(result));
+                self.finish_fs(context);
+            }
             Message::DismissLoadoutPrompt => self.loadout_prompt = None,
             Message::LoadoutNameChanged(name) => {
                 if let Some(draft) = &mut self.loadout_draft {
@@ -393,7 +432,10 @@ impl Component for WinWam {
             }
             Message::ShowWorkshopScreen(screen) => self.workshop_screen = screen,
             Message::SelectFlavor(Some(index)) if index < GAME_FLAVORS.len() => {
-                if index == self.selected_flavor || !self.installing_addon_ids.is_empty() {
+                if index == self.selected_flavor
+                    || self.fs_busy
+                    || !self.installing_addon_ids.is_empty()
+                {
                     return;
                 }
                 self.remember_current_page();
@@ -501,49 +543,43 @@ impl Component for WinWam {
             Message::CloseSupportAuthors => self.support_authors_open = false,
             Message::InstallAddon(id) => {
                 if self.installing_addon_ids.insert(id.clone()) {
-                    let wow_folder = PathBuf::from(self.wow_folder.trim());
-                    let flavor = self.selected_flavor;
-                    context.spawn_background(move |_| {
-                        #[cfg(debug_assertions)]
-                        std::thread::sleep(std::time::Duration::from_millis(650));
-                        let result = install_test_addon(&wow_folder, flavor, &id)
-                            .map_err(|error| error.to_string());
-                        Message::InstallFinished(id, result)
-                    });
+                    self.enqueue_fs(FsOp::Install(id), context);
                 }
             }
             Message::InstallFinished(id, result) => {
                 self.installing_addon_ids.remove(&id);
                 match result {
                     Ok(()) => {
-                        self.refresh_installed();
-                        self.directory_error = None;
-                        self.directory_stale = false;
+                        self.operation_results.remove(&id);
                     }
                     Err(error) => {
                         logging::error(&format!("Could not install addon: {error}"));
-                        self.directory_error = Some(format!("Could not install addon: {error}"));
-                        self.directory_stale = false;
+                        self.operation_results
+                            .insert(id, format!("Could not install addon: {error}"));
                     }
                 }
+                self.refresh_installed();
+                self.finish_fs(context);
             }
             Message::UninstallAddon(id) => {
-                match uninstall_test_addon(
-                    Path::new(self.wow_folder.trim()),
-                    self.selected_flavor,
-                    &id,
-                ) {
+                if self.installing_addon_ids.insert(id.clone()) {
+                    self.enqueue_fs(FsOp::Uninstall(id), context);
+                }
+            }
+            Message::UninstallFinished(id, result) => {
+                self.installing_addon_ids.remove(&id);
+                match result {
                     Ok(()) => {
-                        self.refresh_installed();
-                        self.directory_error = None;
-                        self.directory_stale = false;
+                        self.operation_results.remove(&id);
                     }
                     Err(error) => {
                         logging::error(&format!("Could not uninstall addon: {error}"));
-                        self.directory_error = Some(format!("Could not uninstall addon: {error}"));
-                        self.directory_stale = false;
+                        self.operation_results
+                            .insert(id, format!("Could not uninstall addon: {error}"));
                     }
                 }
+                self.refresh_installed();
+                self.finish_fs(context);
             }
             Message::ApplySettings => {
                 let url = self.pending_source_base_url.trim().trim_end_matches('/');
@@ -813,7 +849,10 @@ impl WinWam {
                                             .height(theme::CONTROL_HEIGHT)
                                             .items_source(GAME_FLAVORS.map(|flavor| flavor.label))
                                             .selected_index(self.selected_flavor)
-                                            .is_enabled(self.installing_addon_ids.is_empty())
+                                            .is_enabled(
+                                                !self.fs_busy
+                                                    && self.installing_addon_ids.is_empty(),
+                                            )
                                             .on_selection_changed(
                                                 context.callback(Message::SelectFlavor),
                                             ),
@@ -987,7 +1026,7 @@ impl WinWam {
             .join(", ")
     }
 
-    fn confirm_loadout_prompt(&mut self) {
+    fn confirm_loadout_prompt(&mut self, context: &ComponentContext<Self>) {
         match self.loadout_prompt.take() {
             Some(LoadoutPrompt::ConfirmDelete { index, name }) => {
                 if index < self.loadouts.len() {
@@ -997,51 +1036,170 @@ impl WinWam {
                 }
             }
             Some(LoadoutPrompt::ConfirmApply(plan)) => {
-                let result = self.apply_loadout_plan(plan);
-                self.record_telemetry(format!(
-                    "Loadout applied · {} · {} installed · {} removed · {} failed",
-                    result.name,
-                    result.installed.len(),
-                    result.uninstalled.len(),
-                    result.failures.len()
-                ));
-                self.loadout_prompt = Some(LoadoutPrompt::Result(result));
+                for id in plan.install.iter().chain(plan.uninstall.iter()) {
+                    self.installing_addon_ids.insert(id.clone());
+                }
+                self.enqueue_fs(FsOp::ApplyLoadout(plan), context);
             }
             Some(LoadoutPrompt::Result(_)) | None => {}
         }
     }
 
-    fn apply_loadout_plan(&mut self, plan: loadout::LoadoutPlan) -> loadout::LoadoutApplyResult {
-        let wow_folder = Path::new(self.wow_folder.trim());
-        let mut installed = Vec::new();
-        let mut uninstalled = Vec::new();
-        let mut failures = Vec::new();
-        for id in plan.uninstall {
-            match uninstall_test_addon(wow_folder, self.selected_flavor, &id) {
-                Ok(()) => uninstalled.push(id),
-                Err(error) => failures.push(loadout::LoadoutFailure {
-                    id,
-                    action: "uninstall",
-                    error: error.to_string(),
-                }),
+    fn enqueue_fs(&mut self, op: FsOp, context: &ComponentContext<Self>) {
+        self.fs_queue.push_back(op);
+        self.start_next_fs(context);
+    }
+
+    fn finish_fs(&mut self, context: &ComponentContext<Self>) {
+        self.fs_busy = false;
+        self.start_next_fs(context);
+    }
+
+    fn install_context(&self, addons_folder: PathBuf, id: &str) -> Option<install::InstallContext> {
+        let addon = self
+            .source_list
+            .addons
+            .iter()
+            .find(|addon| addon.id == id)?;
+        let local_version = self
+            .installed_addons
+            .iter()
+            .find(|installed| installed.id == id)
+            .and_then(|installed| installed.version.clone());
+        Some(install::context_from_addon(
+            addons_folder,
+            addon,
+            GAME_FLAVORS[self.selected_flavor].slug,
+            local_version,
+            None,
+        ))
+    }
+
+    fn start_next_fs(&mut self, context: &ComponentContext<Self>) {
+        if self.fs_busy {
+            return;
+        }
+        let Some(op) = self.fs_queue.pop_front() else {
+            return;
+        };
+        let Some(addons_folder) =
+            addons_folder(Path::new(self.wow_folder.trim()), self.selected_flavor)
+        else {
+            self.fail_missing_addons_folder(op);
+            self.start_next_fs(context);
+            return;
+        };
+        self.fs_busy = true;
+        match op {
+            FsOp::Install(id) => {
+                let ctx = self.install_context(addons_folder, &id);
+                context.spawn_background(move |_| {
+                    let result = match ctx {
+                        Some(ctx) => install::install_addon(&ctx)
+                            .map(|_| ())
+                            .map_err(|error| error.to_string()),
+                        None => Err(install::InstallError::UnknownAddon.to_string()),
+                    };
+                    Message::InstallFinished(id, result)
+                });
+            }
+            FsOp::Uninstall(id) => {
+                context.spawn_background(move |_| {
+                    let result = install::uninstall_addon(&addons_folder, &id)
+                        .map(|_| ())
+                        .map_err(|error| error.to_string());
+                    Message::UninstallFinished(id, result)
+                });
+            }
+            FsOp::ApplyLoadout(plan) => {
+                let sku = GAME_FLAVORS[self.selected_flavor].slug.to_string();
+                let catalog = self.source_list.addons.clone();
+                let installed = self.installed_addons.clone();
+                context.spawn_background(move |_| {
+                    let mut installed_ids = Vec::new();
+                    let mut uninstalled = Vec::new();
+                    let mut failures = Vec::new();
+                    for id in plan.uninstall {
+                        match install::uninstall_addon(&addons_folder, &id) {
+                            Ok(_) => uninstalled.push(id),
+                            Err(error) => failures.push(loadout::LoadoutFailure {
+                                id,
+                                action: "uninstall",
+                                error: error.to_string(),
+                            }),
+                        }
+                    }
+                    for id in plan.install {
+                        let Some(addon) = catalog.iter().find(|addon| addon.id == id) else {
+                            failures.push(loadout::LoadoutFailure {
+                                id,
+                                action: "install",
+                                error: install::InstallError::UnknownAddon.to_string(),
+                            });
+                            continue;
+                        };
+                        let local_version = installed
+                            .iter()
+                            .find(|item| item.id == id)
+                            .and_then(|item| item.version.clone());
+                        let ctx = install::context_from_addon(
+                            addons_folder.clone(),
+                            addon,
+                            &sku,
+                            local_version,
+                            None,
+                        );
+                        match install::install_addon(&ctx) {
+                            Ok(_) => installed_ids.push(id),
+                            Err(error) => failures.push(loadout::LoadoutFailure {
+                                id,
+                                action: "install",
+                                error: error.to_string(),
+                            }),
+                        }
+                    }
+                    Message::LoadoutApplyFinished(loadout::LoadoutApplyResult {
+                        name: plan.name,
+                        installed: installed_ids,
+                        uninstalled,
+                        failures,
+                    })
+                });
             }
         }
-        for id in plan.install {
-            match install_test_addon(wow_folder, self.selected_flavor, &id) {
-                Ok(()) => installed.push(id),
-                Err(error) => failures.push(loadout::LoadoutFailure {
-                    id,
-                    action: "install",
-                    error: error.to_string(),
-                }),
+    }
+
+    fn fail_missing_addons_folder(&mut self, op: FsOp) {
+        let error = install::InstallError::MissingAddonsFolder.to_string();
+        match op {
+            FsOp::Install(id) | FsOp::Uninstall(id) => {
+                self.installing_addon_ids.remove(&id);
+                self.operation_results.insert(id, error);
+                self.refresh_installed();
             }
-        }
-        self.refresh_installed();
-        loadout::LoadoutApplyResult {
-            name: plan.name,
-            installed,
-            uninstalled,
-            failures,
+            FsOp::ApplyLoadout(plan) => {
+                let failures = plan
+                    .install
+                    .iter()
+                    .chain(plan.uninstall.iter())
+                    .cloned()
+                    .map(|id| {
+                        self.installing_addon_ids.remove(&id);
+                        self.operation_results.insert(id.clone(), error.clone());
+                        loadout::LoadoutFailure {
+                            id,
+                            action: "apply",
+                            error: error.clone(),
+                        }
+                    })
+                    .collect();
+                self.loadout_prompt = Some(LoadoutPrompt::Result(loadout::LoadoutApplyResult {
+                    name: plan.name,
+                    installed: Vec::new(),
+                    uninstalled: Vec::new(),
+                    failures,
+                }));
+            }
         }
     }
 
@@ -1329,10 +1487,16 @@ impl WinWam {
                             addon,
                             palette,
                             context,
-                            installed,
-                            managed,
-                            self.expanded_addon_id.as_deref() == Some(addon.id.as_str()),
-                            self.installing_addon_ids.contains(&addon.id),
+                            AddonCardState {
+                                installed,
+                                managed,
+                                expanded: self.expanded_addon_id.as_deref()
+                                    == Some(addon.id.as_str()),
+                                installing: self.installing_addon_ids.contains(&addon.id),
+                                locked: self.fs_busy
+                                    && !self.installing_addon_ids.contains(&addon.id),
+                                error: self.operation_results.get(&addon.id).cloned(),
+                            },
                         ),
                     )
                 })
@@ -1484,6 +1648,7 @@ impl WinWam {
             .map(|item| item.managed)
             .unwrap_or(false);
         let installing = self.installing_addon_ids.contains(&addon.id);
+        let locked = self.fs_busy && !installing;
         let status = if installing {
             "Installing"
         } else if installed && managed {
@@ -1541,6 +1706,7 @@ impl WinWam {
                 .into()
         } else if !installed {
             theme::accent_button(palette, "Install")
+                .enabled(!locked)
                 .automation_name(format!("Install {}", addon.name))
                 .on_click({
                     let id = addon.id.clone();
@@ -1549,7 +1715,7 @@ impl WinWam {
                 .into()
         } else {
             theme::outline_button(palette, "Remove")
-                .enabled(managed)
+                .enabled(managed && !locked)
                 .automation_name(if managed {
                     format!("Remove {}", addon.name)
                 } else {
@@ -1578,7 +1744,12 @@ impl WinWam {
                     .on_click(context.callback(move |_| Message::OpenHttpsUrl(url.clone()))),
             ));
         }
-        if let Some(error) = &self.directory_error {
+        if let Some(error) = self
+            .operation_results
+            .get(&addon.id)
+            .cloned()
+            .or_else(|| self.directory_error.clone())
+        {
             sidebar.push(KeyedView::new(
                 "error",
                 InfoBar::new()
@@ -1586,7 +1757,7 @@ impl WinWam {
                     .is_closable(false)
                     .severity(InfoBarSeverity::Error)
                     .title("Action failed")
-                    .message(error.clone()),
+                    .message(error),
             ));
         }
         let mut main_children: Vec<View> = vec![
@@ -1898,11 +2069,11 @@ impl WinWam {
                                         .orientation(Orientation::Horizontal)
                                         .spacing(8.0)
                                         .children((
-                                            theme::accent_button(palette, "Apply").on_click(
-                                                context.callback(move |_| {
+                                            theme::accent_button(palette, "Apply")
+                                                .enabled(!self.fs_busy)
+                                                .on_click(context.callback(move |_| {
                                                     Message::RequestApplyLoadout(index)
-                                                }),
-                                            ),
+                                                })),
                                             theme::outline_button(palette, "Edit")
                                                 .on_click(context.callback(move |_| {
                                                     Message::EditLoadout(index)
@@ -2176,15 +2347,29 @@ impl WinWam {
     }
 }
 
-fn addon_card(
-    addon: &Addon,
-    palette: &theme::Palette,
-    context: &ViewContext<WinWam>,
+struct AddonCardState {
     installed: bool,
     managed: bool,
     expanded: bool,
     installing: bool,
+    locked: bool,
+    error: Option<String>,
+}
+
+fn addon_card(
+    addon: &Addon,
+    palette: &theme::Palette,
+    context: &ViewContext<WinWam>,
+    state: AddonCardState,
 ) -> View {
+    let AddonCardState {
+        installed,
+        managed,
+        expanded,
+        installing,
+        locked,
+        error,
+    } = state;
     let overlay: View = if installing {
         StackPanel::new()
             .orientation(Orientation::Horizontal)
@@ -2208,6 +2393,7 @@ fn addon_card(
             .height(32.0)
             .horizontal_alignment(HorizontalAlignment::Right)
             .vertical_alignment(VerticalAlignment::Bottom)
+            .enabled(!locked)
             .on_click({
                 let id = addon.id.clone();
                 context.callback(move |_| Message::InstallAddon(id.clone()))
@@ -2218,13 +2404,13 @@ fn addon_card(
             .height(32.0)
             .horizontal_alignment(HorizontalAlignment::Right)
             .vertical_alignment(VerticalAlignment::Bottom)
-            .enabled(managed)
+            .enabled(managed && !locked)
             .automation_name(if managed {
                 format!("Remove {}", addon.name)
             } else {
                 "WinWAM did not install this addon, so it will not remove it.".to_string()
             });
-        if managed {
+        if managed && !locked {
             remove
                 .on_click({
                     let id = addon.id.clone();
@@ -2235,13 +2421,22 @@ fn addon_card(
             remove.into()
         }
     };
-    let downloads: View = match addon.download_count {
-        Some(count) => TextBlock::new()
-            .text(directory::compact_count(count))
+    let downloads: View = if let Some(error) = error {
+        TextBlock::new()
+            .text(error)
             .font_size(theme::META_SIZE)
-            .foreground(palette.text_muted)
-            .into(),
-        None => Border::new().height(0.0).into(),
+            .text_wrapping(TextWrapping::Wrap)
+            .foreground(palette.accent)
+            .into()
+    } else {
+        match addon.download_count {
+            Some(count) => TextBlock::new()
+                .text(directory::compact_count(count))
+                .font_size(theme::META_SIZE)
+                .foreground(palette.text_muted)
+                .into(),
+            None => Border::new().height(0.0).into(),
+        }
     };
     let source: View = match directory::resolved_source_url(addon) {
         Some(url) => Button::new()
@@ -2330,7 +2525,9 @@ fn addon_card(
 fn message_is_error(message: &Message) -> bool {
     matches!(
         message,
-        Message::InstallFinished(_, Err(_)) | Message::DirectoryRefreshFinished(_, Err(_))
+        Message::InstallFinished(_, Err(_))
+            | Message::UninstallFinished(_, Err(_))
+            | Message::DirectoryRefreshFinished(_, Err(_))
     )
 }
 
@@ -2361,6 +2558,17 @@ fn message_telemetry(message: &Message) -> String {
         Message::InstallFinished(id, Ok(())) => format!("Install completed · {id}"),
         Message::InstallFinished(id, Err(error)) => format!("Install failed · {id} · {error}"),
         Message::UninstallAddon(id) => format!("Uninstall requested · {id}"),
+        Message::UninstallFinished(id, Ok(())) => format!("Uninstall completed · {id}"),
+        Message::UninstallFinished(id, Err(error)) => {
+            format!("Uninstall failed · {id} · {error}")
+        }
+        Message::LoadoutApplyFinished(result) => format!(
+            "Loadout applied · {} · {} installed · {} removed · {} failed",
+            result.name,
+            result.installed.len(),
+            result.uninstalled.len(),
+            result.failures.len()
+        ),
         Message::ToggleAddonDetails(id) => format!("Addon details toggled · {id}"),
         Message::CloseAddonDetails => "Addon details closed".to_string(),
         Message::DismissSupportBanner => "Support banner dismissed".to_string(),
@@ -2624,48 +2832,6 @@ fn scan_installed(
     );
     let ids = installed.iter().map(|addon| addon.id.clone()).collect();
     (installed, ids)
-}
-
-#[cfg(debug_assertions)]
-fn install_test_addon(wow_folder: &Path, index: usize, id: &str) -> std::io::Result<()> {
-    let root = addons_folder(wow_folder, index)
-        .ok_or_else(|| std::io::Error::other("unknown game flavor"))?
-        .join(id);
-    std::fs::create_dir_all(&root)?;
-    std::fs::write(root.join(".winwam-id"), id)?;
-    std::fs::write(
-        root.join(format!("{id}.toc")),
-        format!("## Title: {id}\n## Version: 1.0.0\n{id}.lua\n"),
-    )?;
-    std::fs::write(root.join(format!("{id}.lua")), "-- WinWam test addon\n")
-}
-
-#[cfg(not(debug_assertions))]
-fn install_test_addon(_wow_folder: &Path, _index: usize, _id: &str) -> std::io::Result<()> {
-    Err(std::io::Error::other("installation is not implemented yet"))
-}
-
-#[cfg(debug_assertions)]
-fn uninstall_test_addon(wow_folder: &Path, index: usize, id: &str) -> std::io::Result<()> {
-    let addons = addons_folder(wow_folder, index)
-        .ok_or_else(|| std::io::Error::other("unknown game flavor"))?;
-    let root = scan::find_addon_directory(&addons, id).ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "addon folder not found")
-    })?;
-    let marker = std::fs::read_to_string(root.join(".winwam-id"))?;
-    if marker.trim() != id {
-        return Err(std::io::Error::other(
-            "addon ownership marker does not match",
-        ));
-    }
-    std::fs::remove_dir_all(root)
-}
-
-#[cfg(not(debug_assertions))]
-fn uninstall_test_addon(_wow_folder: &Path, _index: usize, _id: &str) -> std::io::Result<()> {
-    Err(std::io::Error::other(
-        "uninstallation is not implemented yet",
-    ))
 }
 
 fn detect_wow_folder(index: usize) -> Option<PathBuf> {
