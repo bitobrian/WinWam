@@ -103,6 +103,11 @@ enum Message {
     InstallFinished(String, Result<(), String>),
     UninstallAddon(String),
     ToggleAddonDetails(String),
+    CloseAddonDetails,
+    DismissSupportBanner,
+    RestoreSupportBanner,
+    ShowSupportAuthors,
+    CloseSupportAuthors,
     ToggleHood,
     SelectTelemetryLevel(Option<usize>),
     NewLoadout,
@@ -140,6 +145,8 @@ struct WinWam {
     loadout_prompt: Option<LoadoutPrompt>,
     last_pages: BTreeMap<String, String>,
     support_banner_dismissed: bool,
+    support_authors_open: bool,
+    toast: Option<String>,
     update_status: UpdateStatus,
     workshop_screen: WorkshopScreen,
     discover_surfaces: [CatalogSurfaceState; 5],
@@ -219,6 +226,8 @@ impl Component for WinWam {
             loadout_prompt: None,
             last_pages: settings.last_pages,
             support_banner_dismissed: settings.support_banner_dismissed,
+            support_authors_open: false,
+            toast: None,
             update_status: UpdateStatus::Idle,
             workshop_screen: WorkshopScreen::Overview,
             discover_surfaces: std::array::from_fn(|_| CatalogSurfaceState::default()),
@@ -376,6 +385,11 @@ impl Component for WinWam {
                     None => UpdateStatus::Current,
                     Some(error) => UpdateStatus::Failed(error.clone()),
                 };
+                if let Some(id) = &self.expanded_addon_id
+                    && self.lookup_overlay_addon(id).is_none()
+                {
+                    self.expanded_addon_id = None;
+                }
             }
             Message::ShowWorkshopScreen(screen) => self.workshop_screen = screen,
             Message::SelectFlavor(Some(index)) if index < GAME_FLAVORS.len() => {
@@ -425,11 +439,21 @@ impl Component for WinWam {
                 }
             }
             Message::SelectCategory(None) => {}
-            Message::OpenHttpsUrl(url) => {
-                if let Err(error) = directory::open_https_url(&url) {
-                    logging::error(&format!("Could not open {url}: {error}"));
+            Message::OpenHttpsUrl(url) => match directory::validated_https_url(&url) {
+                Ok(url) => {
+                    let host = url
+                        .trim()
+                        .strip_prefix("https://")
+                        .and_then(|rest| rest.split(['/', '?', '#']).next())
+                        .unwrap_or("site");
+                    self.toast = Some(format!("Opening {host}"));
+                    if let Err(error) = directory::open_https_url(&url) {
+                        logging::error(&format!("Could not open {url}: {error}"));
+                        self.toast = Some(format!("Could not open {host}"));
+                    }
                 }
-            }
+                Err(error) => logging::error(&format!("Blocked URL {url}: {error}")),
+            },
             Message::SourceUrlChanged(url) => self.pending_source_base_url = url,
             Message::WowFolderChanged(path) => {
                 self.wow_folder_missing =
@@ -459,7 +483,22 @@ impl Component for WinWam {
                 } else {
                     Some(id)
                 };
+                self.support_authors_open = false;
             }
+            Message::CloseAddonDetails => self.expanded_addon_id = None,
+            Message::DismissSupportBanner => {
+                self.support_banner_dismissed = true;
+                self.persist_settings();
+            }
+            Message::RestoreSupportBanner => {
+                self.support_banner_dismissed = false;
+                self.persist_settings();
+            }
+            Message::ShowSupportAuthors => {
+                self.support_authors_open = true;
+                self.expanded_addon_id = None;
+            }
+            Message::CloseSupportAuthors => self.support_authors_open = false,
             Message::InstallAddon(id) => {
                 if self.installing_addon_ids.insert(id.clone()) {
                     let wow_folder = PathBuf::from(self.wow_folder.trim());
@@ -643,11 +682,12 @@ impl Component for WinWam {
             Border::new().width(0.0).into()
         };
 
+        let overlay = self.shell_overlay(context, palette);
         let content_column = Grid::new()
             .grid_column(1)
             .horizontal_alignment(HorizontalAlignment::Stretch)
             .vertical_alignment(VerticalAlignment::Stretch)
-            .children((page, hood));
+            .children((page, hood, overlay));
 
         Grid::new()
             .rows([GridLength::Auto, GridLength::STAR])
@@ -1220,6 +1260,12 @@ impl WinWam {
                     ),
             ));
         }
+        if !self.support_banner_dismissed {
+            children.push(KeyedView::new(
+                "support-banner",
+                self.support_banner_view(palette, context),
+            ));
+        }
 
         let empty_catalog = items.is_empty();
         let loading = matches!(self.update_status, UpdateStatus::Checking) && empty_catalog;
@@ -1300,15 +1346,6 @@ impl WinWam {
                     .horizontal_alignment(HorizontalAlignment::Left)
                     .keyed_children(cards),
             ));
-            if let Some(addon) = addons
-                .iter()
-                .find(|addon| self.expanded_addon_id.as_deref() == Some(addon.id.as_str()))
-            {
-                children.push(KeyedView::new(
-                    "details",
-                    addon_inline_details(addon, palette),
-                ));
-            }
         }
 
         ScrollViewer::new()
@@ -1318,6 +1355,384 @@ impl WinWam {
                     .spacing(16.0)
                     .margin(Thickness::uniform(theme::PAGE_MARGIN))
                     .keyed_children(children),
+            )
+    }
+
+    fn support_banner_view(&self, palette: &theme::Palette, context: &ViewContext<Self>) -> View {
+        Border::new()
+            .background(palette.card_bg)
+            .border_brush(palette.stroke)
+            .border_thickness(1.0)
+            .corner_radius(theme::CARD_RADIUS)
+            .padding(Thickness::xy(16.0, 12.0))
+            .content(
+                Grid::new()
+                    .columns([
+                        GridLength::Auto,
+                        GridLength::STAR,
+                        GridLength::Auto,
+                        GridLength::Auto,
+                    ])
+                    .column_spacing(12.0)
+                    .children((
+                        SymbolIcon::new().symbol(Symbol::Favorite),
+                        StackPanel::new().grid_column(1).spacing(2.0).children((
+                            TextBlock::new()
+                                .text("DID YOU KNOW?")
+                                .font_size(theme::EYEBROW_SIZE)
+                                .font_weight(FontWeight::EXTRA_BOLD)
+                                .foreground(palette.accent),
+                            TextBlock::new()
+                                .text("Enjoy an addon? Consider supporting its author.")
+                                .font_weight(FontWeight::SEMI_BOLD)
+                                .foreground(palette.text_primary)
+                                .text_wrapping(TextWrapping::Wrap),
+                            TextBlock::new()
+                                .text("Many authors accept donations through GitHub Sponsors, Ko-fi, Patreon, or their project page. A contribution, star, or kind note all help.")
+                                .font_size(theme::META_SIZE)
+                                .foreground(palette.text_muted)
+                                .text_wrapping(TextWrapping::Wrap),
+                        )),
+                        theme::accent_button(palette, "Support authors")
+                            .grid_column(2)
+                            .vertical_alignment(VerticalAlignment::Center)
+                            .on_click(context.callback(|_| Message::ShowSupportAuthors)),
+                        theme::outline_button(palette, "Dismiss")
+                            .grid_column(3)
+                            .vertical_alignment(VerticalAlignment::Center)
+                            .automation_name("Dismiss author-support message")
+                            .on_click(context.callback(|_| Message::DismissSupportBanner)),
+                    )),
+            )
+    }
+
+    fn shell_overlay(&self, context: &ViewContext<Self>, palette: &theme::Palette) -> View {
+        let dialog: Option<View> = if self.support_authors_open {
+            Some(self.support_authors_overlay(palette, context))
+        } else if let Some(id) = self.expanded_addon_id.as_deref() {
+            self.lookup_overlay_addon(id)
+                .map(|addon| self.addon_details_overlay(&addon, palette, context))
+        } else {
+            None
+        };
+        let toast: View = match &self.toast {
+            Some(message) => Border::new()
+                .horizontal_alignment(HorizontalAlignment::Center)
+                .vertical_alignment(VerticalAlignment::Bottom)
+                .margin(Thickness::new(0.0, 0.0, 0.0, 24.0))
+                .background(palette.card_bg)
+                .border_brush(palette.stroke)
+                .border_thickness(1.0)
+                .corner_radius(theme::CARD_RADIUS)
+                .padding(Thickness::xy(16.0, 10.0))
+                .content(
+                    TextBlock::new()
+                        .text(message.clone())
+                        .foreground(palette.text_primary),
+                ),
+            None => Border::new().height(0.0).into(),
+        };
+        match dialog {
+            Some(dialog) => Grid::new().children((
+                Border::new()
+                    .background(palette.overlay)
+                    .horizontal_alignment(HorizontalAlignment::Stretch)
+                    .vertical_alignment(VerticalAlignment::Stretch),
+                Border::new()
+                    .width(theme::MODAL_WIDTH)
+                    .horizontal_alignment(HorizontalAlignment::Center)
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .content(dialog),
+                toast,
+            )),
+            None => toast,
+        }
+    }
+
+    fn lookup_overlay_addon(&self, id: &str) -> Option<Addon> {
+        self.source_list
+            .addons
+            .iter()
+            .find(|addon| addon.id == id)
+            .cloned()
+            .or_else(|| {
+                self.installed_addons
+                    .iter()
+                    .find(|item| item.id == id)
+                    .map(|installed| Addon {
+                        id: installed.id.clone(),
+                        name: installed.title.clone(),
+                        author: String::new(),
+                        category: String::new(),
+                        version: installed.version.clone(),
+                        ..Addon::default()
+                    })
+            })
+    }
+
+    fn addon_details_overlay(
+        &self,
+        addon: &Addon,
+        palette: &theme::Palette,
+        context: &ViewContext<Self>,
+    ) -> View {
+        let installed = self.installed_addon_ids.contains(&addon.id);
+        let managed = self
+            .installed_addons
+            .iter()
+            .find(|item| item.id == addon.id)
+            .map(|item| item.managed)
+            .unwrap_or(false);
+        let installing = self.installing_addon_ids.contains(&addon.id);
+        let status = if installing {
+            "Installing"
+        } else if installed && managed {
+            "Installed"
+        } else if installed {
+            "Unmanaged"
+        } else {
+            "Not installed"
+        };
+        let version = addon
+            .latest_release
+            .as_ref()
+            .map(|release| release.version.as_str())
+            .or(addon.version.as_deref());
+        let updated = addon
+            .latest_release
+            .as_ref()
+            .and_then(|release| parse_published_at(&release.published_at))
+            .map(format_age);
+        let source = directory::resolved_source_url(addon);
+        let support = addon.support_urls.first().map(|item| item.url.clone());
+        let mut sidebar = vec![KeyedView::new("status", theme::stat_chip(palette, status))];
+        if let Some(version) = version {
+            sidebar.push(KeyedView::new(
+                "version",
+                meta_row(palette, "Version", version),
+            ));
+        }
+        sidebar.push(KeyedView::new(
+            "sku",
+            meta_row(
+                palette,
+                "Game version",
+                GAME_FLAVORS[self.selected_flavor].label,
+            ),
+        ));
+        if let Some(count) = addon.download_count {
+            sidebar.push(KeyedView::new(
+                "downloads",
+                meta_row(palette, "Downloads", &directory::compact_count(count)),
+            ));
+        }
+        if let Some(updated) = updated.as_deref() {
+            sidebar.push(KeyedView::new(
+                "updated",
+                meta_row(palette, "Updated", updated),
+            ));
+        }
+        let action: View = if installing {
+            ProgressRing::new()
+                .width(28.0)
+                .height(28.0)
+                .is_indeterminate(true)
+                .is_active(true)
+                .into()
+        } else if !installed {
+            theme::accent_button(palette, "Install")
+                .automation_name(format!("Install {}", addon.name))
+                .on_click({
+                    let id = addon.id.clone();
+                    context.callback(move |_| Message::InstallAddon(id.clone()))
+                })
+                .into()
+        } else {
+            theme::outline_button(palette, "Remove")
+                .enabled(managed)
+                .automation_name(if managed {
+                    format!("Remove {}", addon.name)
+                } else {
+                    "WinWAM did not install this addon, so it will not remove it.".to_string()
+                })
+                .on_click({
+                    let id = addon.id.clone();
+                    context.callback(move |_| Message::UninstallAddon(id.clone()))
+                })
+                .into()
+        };
+        sidebar.push(KeyedView::new("action", action));
+        if let Some(url) = source {
+            sidebar.push(KeyedView::new(
+                "source",
+                theme::outline_button(palette, "View source project")
+                    .automation_name(format!("Open {} source project", addon.name))
+                    .on_click(context.callback(move |_| Message::OpenHttpsUrl(url.clone()))),
+            ));
+        }
+        if let Some(url) = support {
+            sidebar.push(KeyedView::new(
+                "support",
+                theme::outline_button(palette, "Support this author")
+                    .automation_name(format!("Support {}", addon.author))
+                    .on_click(context.callback(move |_| Message::OpenHttpsUrl(url.clone()))),
+            ));
+        }
+        if let Some(error) = &self.directory_error {
+            sidebar.push(KeyedView::new(
+                "error",
+                InfoBar::new()
+                    .is_open(true)
+                    .is_closable(false)
+                    .severity(InfoBarSeverity::Error)
+                    .title("Action failed")
+                    .message(error.clone()),
+            ));
+        }
+        let mut main_children: Vec<View> = vec![
+            TextBlock::new()
+                .text("About this addon")
+                .font_size(theme::SECTION_TITLE_SIZE)
+                .font_weight(FontWeight::SEMI_BOLD)
+                .foreground(palette.text_primary)
+                .into(),
+            TextBlock::new()
+                .text(
+                    addon
+                        .description
+                        .clone()
+                        .unwrap_or_else(|| addon.summary.clone()),
+                )
+                .text_wrapping(TextWrapping::Wrap)
+                .foreground(palette.text_primary)
+                .into(),
+        ];
+        if !addon.features.is_empty() {
+            main_children.push(
+                TextBlock::new()
+                    .text("What it adds")
+                    .font_size(theme::SECTION_TITLE_SIZE)
+                    .font_weight(FontWeight::SEMI_BOLD)
+                    .foreground(palette.text_primary)
+                    .into(),
+            );
+            for feature in &addon.features {
+                main_children.push(
+                    TextBlock::new()
+                        .text(format!("• {feature}"))
+                        .text_wrapping(TextWrapping::Wrap)
+                        .foreground(palette.text_muted)
+                        .into(),
+                );
+            }
+        }
+        Border::new()
+            .background(palette.card_bg)
+            .border_brush(palette.stroke)
+            .border_thickness(1.0)
+            .corner_radius(theme::CARD_RADIUS)
+            .padding(Thickness::uniform(20.0))
+            .content(
+                StackPanel::new().spacing(16.0).children((
+                    Grid::new()
+                        .columns([GridLength::STAR, GridLength::Auto])
+                        .children((
+                            Grid::new()
+                                .columns([GridLength::Auto, GridLength::STAR])
+                                .column_spacing(12.0)
+                                .children((
+                                    theme::addon_icon_tile_at(palette, &addon.name, 58.0),
+                                    StackPanel::new().grid_column(1).spacing(4.0).children((
+                                        theme::category_chip(
+                                            palette,
+                                            directory::category_label(&addon.category),
+                                        ),
+                                        TextBlock::new()
+                                            .text(addon.name.clone())
+                                            .font_size(theme::ROW_NAME_SIZE)
+                                            .font_weight(FontWeight::BOLD)
+                                            .foreground(palette.text_primary),
+                                        TextBlock::new()
+                                            .text(format!("by {}", addon.author))
+                                            .foreground(palette.text_muted),
+                                    )),
+                                )),
+                            theme::outline_button(palette, "Close")
+                                .grid_column(1)
+                                .automation_name("Close")
+                                .on_click(context.callback(|_| Message::CloseAddonDetails)),
+                        )),
+                    Grid::new()
+                        .columns([
+                            GridLength::STAR,
+                            GridLength::Pixel(theme::MODAL_SIDEBAR_WIDTH),
+                        ])
+                        .column_spacing(20.0)
+                        .children((
+                            StackPanel::new().spacing(10.0).keyed_children(
+                                main_children
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(index, child)| {
+                                        KeyedView::new(format!("main-{index}"), child)
+                                    })
+                                    .collect::<Vec<_>>(),
+                            ),
+                            StackPanel::new()
+                                .grid_column(1)
+                                .spacing(10.0)
+                                .keyed_children(sidebar),
+                        )),
+                )),
+            )
+    }
+
+    fn support_authors_overlay(
+        &self,
+        palette: &theme::Palette,
+        context: &ViewContext<Self>,
+    ) -> View {
+        Border::new()
+            .background(palette.card_bg)
+            .border_brush(palette.stroke)
+            .border_thickness(1.0)
+            .corner_radius(theme::CARD_RADIUS)
+            .padding(Thickness::uniform(20.0))
+            .content(
+                StackPanel::new().spacing(12.0).children((
+                    Grid::new()
+                        .columns([GridLength::STAR, GridLength::Auto])
+                        .children((
+                            StackPanel::new()
+                                .orientation(Orientation::Horizontal)
+                                .spacing(8.0)
+                                .children((
+                                    theme::addon_icon_tile(palette, "Support"),
+                                    TextBlock::new()
+                                        .text("Support authors")
+                                        .font_size(theme::SECTION_TITLE_SIZE)
+                                        .font_weight(FontWeight::BOLD)
+                                        .foreground(palette.text_primary)
+                                        .vertical_alignment(VerticalAlignment::Center),
+                                )),
+                            theme::outline_button(palette, "Close")
+                                .grid_column(1)
+                                .automation_name("Close")
+                                .on_click(context.callback(|_| Message::CloseSupportAuthors)),
+                        )),
+                    TextBlock::new()
+                        .text("GitHub Sponsors, Ko-fi, Patreon, and project pages are the usual homes for financial support.")
+                        .text_wrapping(TextWrapping::Wrap)
+                        .foreground(palette.text_primary),
+                    TextBlock::new()
+                        .text("Stars, issue reports, and a kind note help even when you are not donating.")
+                        .text_wrapping(TextWrapping::Wrap)
+                        .foreground(palette.text_muted),
+                    TextBlock::new()
+                        .text("Never share account credentials or personal information when contacting an author.")
+                        .text_wrapping(TextWrapping::Wrap)
+                        .foreground(palette.text_muted),
+                )),
             )
     }
 
@@ -1634,7 +2049,12 @@ impl WinWam {
                     .spacing(16.0)
                     .margin(Thickness::uniform(theme::PAGE_MARGIN))
                     .children((
-                        theme::page_header(palette, "Settings", "Configure application behavior"),
+                        StackPanel::new().spacing(12.0).children((
+                            theme::page_header(palette, "Settings", "Configure application behavior"),
+                            theme::outline_button(palette, "Show author-support message").on_click(
+                                context.callback(|_| Message::RestoreSupportBanner),
+                            ),
+                        )),
                         InfoBar::new()
                             .is_open(self.wow_folder_missing)
                             .is_closable(false)
@@ -1907,52 +2327,6 @@ fn addon_card(
         )
 }
 
-fn addon_inline_details(addon: &Addon, palette: &theme::Palette) -> View {
-    Border::new()
-        .background(palette.card_bg)
-        .border_brush(palette.stroke)
-        .border_thickness(1.0)
-        .corner_radius(theme::CARD_RADIUS)
-        .padding(Thickness::uniform(14.0))
-        .content(
-            Grid::new()
-                .columns([GridLength::Auto, GridLength::STAR])
-                .column_spacing(12.0)
-                .children((
-                    theme::addon_icon_tile(palette, &addon.name),
-                    StackPanel::new().grid_column(1).spacing(8.0).children((
-                        TextBlock::new()
-                            .text(addon.name.clone())
-                            .font_size(theme::ROW_NAME_SIZE)
-                            .font_weight(FontWeight::SEMI_BOLD)
-                            .foreground(palette.text_primary),
-                        theme::category_chip(palette, directory::category_label(&addon.category)),
-                        theme::stat_chip(
-                            palette,
-                            addon
-                                .download_count
-                                .map(directory::compact_count)
-                                .unwrap_or_else(|| "Downloads unavailable".to_string()),
-                        ),
-                        TextBlock::new()
-                            .text(
-                                addon
-                                    .description
-                                    .clone()
-                                    .unwrap_or_else(|| addon.summary.clone()),
-                            )
-                            .font_size(14.0)
-                            .text_wrapping(TextWrapping::Wrap)
-                            .foreground(palette.text_primary),
-                        TextBlock::new()
-                            .text(format!("by {}", addon.author))
-                            .font_size(theme::META_SIZE)
-                            .foreground(palette.text_muted),
-                    )),
-                )),
-        )
-}
-
 fn message_is_error(message: &Message) -> bool {
     matches!(
         message,
@@ -1988,6 +2362,11 @@ fn message_telemetry(message: &Message) -> String {
         Message::InstallFinished(id, Err(error)) => format!("Install failed · {id} · {error}"),
         Message::UninstallAddon(id) => format!("Uninstall requested · {id}"),
         Message::ToggleAddonDetails(id) => format!("Addon details toggled · {id}"),
+        Message::CloseAddonDetails => "Addon details closed".to_string(),
+        Message::DismissSupportBanner => "Support banner dismissed".to_string(),
+        Message::RestoreSupportBanner => "Support banner restored".to_string(),
+        Message::ShowSupportAuthors => "Support authors opened".to_string(),
+        Message::CloseSupportAuthors => "Support authors closed".to_string(),
         Message::ToggleHood => "Hood toggled".to_string(),
         Message::SelectTelemetryLevel(level) => format!("Telemetry selection · {level:?}"),
         Message::NewLoadout => "Loadout creation started".to_string(),
@@ -2029,6 +2408,53 @@ fn category_ribbon_icon(category: &str) -> Option<&'static [u8]> {
             "../assets/generated/ribbon-bar/crafting.png"
         )),
         _ => None,
+    }
+}
+
+fn meta_row(palette: &theme::Palette, label: &str, value: &str) -> View {
+    StackPanel::new().spacing(2.0).children((
+        TextBlock::new()
+            .text(label.to_string())
+            .font_size(theme::META_SIZE)
+            .foreground(palette.text_muted),
+        TextBlock::new()
+            .text(value.to_string())
+            .foreground(palette.text_primary),
+    ))
+}
+
+fn civil_unix_days(year: i64, month: u32, day: u32) -> Option<i64> {
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let yoe = year.rem_euclid(400);
+    let month = month as i64;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146097 + doe - 719468)
+}
+
+fn parse_published_at(value: &str) -> Option<std::time::SystemTime> {
+    let date = value.trim().split(['T', ' ']).next()?;
+    let mut parts = date.split('-');
+    let year: i64 = parts.next()?.parse().ok()?;
+    let month: u32 = parts.next()?.parse().ok()?;
+    let day: u32 = parts.next()?.parse().ok()?;
+    let days = civil_unix_days(year, month, day)?;
+    let seconds = u64::try_from(days.checked_mul(86400)?).ok()?;
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+}
+
+fn format_age(then: std::time::SystemTime) -> String {
+    let Ok(elapsed) = std::time::SystemTime::now().duration_since(then) else {
+        return "today".to_string();
+    };
+    match elapsed.as_secs() / 86400 {
+        0 => "today".to_string(),
+        1 => "1 day ago".to_string(),
+        days => format!("{days} days ago"),
     }
 }
 
@@ -2420,5 +2846,16 @@ mod tests {
         assert!(matches_query(&addon, "inventory"));
         assert!(matches_query(&addon, "bags"));
         assert!(!matches_query(&addon, "raid"));
+    }
+
+    #[test]
+    fn format_age_reports_whole_days() {
+        let now = std::time::SystemTime::now();
+        assert_eq!(format_age(now), "today");
+        assert_eq!(
+            format_age(now - std::time::Duration::from_secs(3 * 86400 + 120)),
+            "3 days ago"
+        );
+        assert!(parse_published_at("2026-09-01T12:00:00Z").is_some());
     }
 }
