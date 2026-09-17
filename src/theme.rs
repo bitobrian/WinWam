@@ -132,7 +132,7 @@ impl ThemedButton {
         self
     }
 
-    pub fn is_enabled(mut self, value: bool) -> Self {
+    pub fn enabled(mut self, value: bool) -> Self {
         self.button = self.button.is_enabled(value);
         self
     }
@@ -235,8 +235,7 @@ pub fn ribbon_button(
                     .foreground(palette.accent)
                     .horizontal_alignment(HorizontalAlignment::Center)
                     .vertical_alignment(VerticalAlignment::Center),
-            )
-            .into(),
+            ),
     };
     let mut button = Button::new().style(ButtonStyle::Default);
     button = if selected {

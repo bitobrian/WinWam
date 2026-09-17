@@ -72,11 +72,7 @@ pub fn plan(
     LoadoutPlan {
         name: loadout.name.clone(),
         flavor: loadout.flavor.clone(),
-        install: loadout
-            .addon_ids
-            .difference(installed)
-            .cloned()
-            .collect(),
+        install: loadout.addon_ids.difference(installed).cloned().collect(),
         uninstall: removable.difference(&loadout.addon_ids).cloned().collect(),
     }
 }

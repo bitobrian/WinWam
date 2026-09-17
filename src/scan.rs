@@ -44,16 +44,13 @@ pub fn kebab_case(input: &str) -> String {
         if ch.is_uppercase() {
             if index > 0 {
                 let previous = chars[index - 1];
-                let next_is_lower = chars
-                    .get(index + 1)
-                    .is_some_and(|next| next.is_lowercase());
-                if previous.is_lowercase()
+                let next_is_lower = chars.get(index + 1).is_some_and(|next| next.is_lowercase());
+                if (previous.is_lowercase()
                     || previous.is_ascii_digit()
-                    || (previous.is_uppercase() && next_is_lower)
+                    || (previous.is_uppercase() && next_is_lower))
+                    && !result.ends_with('-')
                 {
-                    if !result.ends_with('-') {
-                        result.push('-');
-                    }
+                    result.push('-');
                 }
             }
             result.extend(ch.to_lowercase());
@@ -144,13 +141,12 @@ pub fn resolve_addon_id(
         return entry.id.to_string();
     }
 
-    if let Some(title) = toc.title.as_deref() {
-        if let Some(entry) = catalog
+    if let Some(title) = toc.title.as_deref()
+        && let Some(entry) = catalog
             .iter()
             .find(|entry| entry.name.eq_ignore_ascii_case(title))
-        {
-            return entry.id.to_string();
-        }
+    {
+        return entry.id.to_string();
     }
 
     if kebab.is_empty() {
@@ -169,10 +165,10 @@ pub fn find_addon_directory(addons_folder: &Path, id: &str) -> Option<PathBuf> {
         if !path.is_dir() {
             continue;
         }
-        if let Ok(marker) = fs::read_to_string(path.join(".winwam-id")) {
-            if marker.trim() == id {
-                return Some(path);
-            }
+        if let Ok(marker) = fs::read_to_string(path.join(".winwam-id"))
+            && marker.trim() == id
+        {
+            return Some(path);
         }
         if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
             if name == id {
