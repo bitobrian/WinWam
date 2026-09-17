@@ -1,0 +1,22 @@
+{
+  "$schema": "../addon-sources.schema.json",
+  "schemaVersion": "2.0",
+  "directory": {
+    "name": "WinWam Open Addon Directory",
+    "repository": "https://github.com/winwam/directory",
+    "description": "Unsupported major schema version."
+  },
+  "flavor": "Retail",
+  "addons": [
+    {
+      "id": "arcane-alerts",
+      "name": "Arcane Alerts",
+      "summary": "Configurable combat notifications.",
+      "author": "Northwind Labs",
+      "sourceKind": "GitHub",
+      "owner": "winwam-samples",
+      "repo": "arcane-alerts",
+      "category": "Combat"
+    }
+  ]
+}

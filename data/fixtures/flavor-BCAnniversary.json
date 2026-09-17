@@ -1,0 +1,22 @@
+{
+  "$schema": "../addon-sources.schema.json",
+  "schemaVersion": "1.1",
+  "directory": {
+    "name": "WinWam Open Addon Directory",
+    "repository": "https://github.com/winwam/directory",
+    "description": "BCAnniversary flavor fixture."
+  },
+  "flavor": "BCAnniversary",
+  "addons": [
+    {
+      "id": "bcanniversary-sample",
+      "name": "Arcane Alerts",
+      "summary": "Configurable combat notifications.",
+      "author": "Northwind Labs",
+      "sourceKind": "GitHub",
+      "owner": "winwam-samples",
+      "repo": "bcanniversary-sample",
+      "category": "Combat"
+    }
+  ]
+}

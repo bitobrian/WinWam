@@ -7,19 +7,18 @@ use std::{
     rc::Rc,
 };
 
-use serde::Deserialize;
 use windows_reactor::*;
 
+mod directory;
 mod loadout;
 mod logging;
 mod persist;
 mod scan;
 mod theme;
 
+use directory::{Addon, AddonSourceList, empty_source_list, load_source_list};
 use loadout::{Loadout, LoadoutDraft, LoadoutPrompt};
 
-#[cfg(debug_assertions)]
-const DEVELOPMENT_DIRECTORY_JSON: &str = include_str!("../data/addon-sources-fake.json");
 #[cfg(debug_assertions)]
 const LOCAL_TEST_ROOT: &str = "local-test";
 
@@ -27,6 +26,7 @@ const LOCAL_TEST_ROOT: &str = "local-test";
 struct GameFlavor {
     label: &'static str,
     slug: &'static str,
+    #[allow(dead_code)]
     schema_value: &'static str,
 }
 
@@ -57,46 +57,6 @@ const GAME_FLAVORS: [GameFlavor; 5] = [
         schema_value: "Forever",
     },
 ];
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AddonSourceList {
-    schema_version: String,
-    directory: DirectoryInfo,
-    #[serde(default = "default_flavor")]
-    flavor: String,
-    addons: Vec<Addon>,
-}
-
-#[derive(Clone, Deserialize)]
-#[allow(dead_code)]
-struct DirectoryInfo {
-    name: String,
-    repository: String,
-    description: Option<String>,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Addon {
-    id: String,
-    name: String,
-    summary: String,
-    author: String,
-    source_kind: String,
-    #[serde(default = "default_host")]
-    host: String,
-    owner: String,
-    repo: String,
-    #[serde(default)]
-    version: Option<String>,
-    #[serde(default)]
-    homepage: Option<String>,
-    category: String,
-    #[serde(default)]
-    tags: Vec<String>,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Page {
@@ -167,6 +127,7 @@ struct WinWam {
     page: Page,
     selected_flavor: usize,
     directory_error: Option<String>,
+    directory_stale: bool,
     source_base_url: String,
     pending_source_base_url: String,
     wow_folder: String,
@@ -218,29 +179,21 @@ impl Component for WinWam {
         };
 
         let source_base_url = settings.source_base_url.clone();
-        let (source_list, directory_error) = match load_source_list(
+        let (mut source_list, mut directory_error, mut directory_stale) = adopt_directory_load(
             selected_flavor,
             &source_base_url,
-        ) {
-            Ok(source_list) => (source_list, None),
-            Err(error) => {
-                logging::error(&format!(
-                    "Could not refresh the initial addon directory: {error}"
-                ));
-                match development_source_list() {
-                    Some(source_list) => (
-                        source_list,
-                        Some(format!(
-                            "Could not refresh the directory: {error}. Showing development data."
-                        )),
-                    ),
-                    None => (
-                        empty_source_list(selected_flavor),
-                        Some(format!("Could not load directory: {error}")),
-                    ),
-                }
-            }
-        };
+            empty_source_list(selected_flavor),
+        );
+        if source_list.addons.is_empty()
+            && let Some(error) = directory_error.as_ref()
+            && let Some(development) = directory::development_source_list()
+        {
+            source_list = development;
+            directory_error = Some(format!(
+                "Could not refresh the directory: {error}. Showing development data."
+            ));
+            directory_stale = false;
+        }
         let (installed_addons, installed_addon_ids) = scan_installed(
             Some(Path::new(wow_folder.trim())),
             selected_flavor,
@@ -266,6 +219,7 @@ impl Component for WinWam {
             ),
             selected_flavor,
             directory_error,
+            directory_stale,
             pending_source_base_url: source_base_url.clone(),
             source_base_url,
             wow_folder,
@@ -432,21 +386,19 @@ impl Component for WinWam {
                 if flavor != self.selected_flavor {
                     return;
                 }
-                let (source_list, directory_error) =
-                    apply_directory_result(self.source_list.clone(), result);
-                match &directory_error {
-                    None => {
-                        self.source_list = source_list;
-                        self.directory_error = None;
-                        self.refresh_installed();
-                        self.update_status = UpdateStatus::Current;
-                    }
-                    Some(error) => {
-                        self.source_list = source_list;
-                        self.directory_error = Some(format!("Could not load directory: {error}"));
-                        self.update_status = UpdateStatus::Failed(error.clone());
-                    }
-                }
+                let (source_list, directory_error, directory_stale) = adopt_directory_result(
+                    result,
+                    directory::load_cached_directory(GAME_FLAVORS[flavor].slug),
+                    self.source_list.clone(),
+                );
+                self.source_list = source_list;
+                self.directory_error = directory_error.clone();
+                self.directory_stale = directory_stale;
+                self.refresh_installed();
+                self.update_status = match &directory_error {
+                    None => UpdateStatus::Current,
+                    Some(error) => UpdateStatus::Failed(error.clone()),
+                };
             }
             Message::ShowWorkshopScreen(screen) => self.workshop_screen = screen,
             Message::SelectFlavor(Some(index)) if index < GAME_FLAVORS.len() => {
@@ -466,27 +418,11 @@ impl Component for WinWam {
                         .get(GAME_FLAVORS[index].slug)
                         .map(String::as_str),
                 );
-                match load_source_list(index, &self.source_base_url) {
-                    Ok(source_list) => {
-                        let (source_list, directory_error) =
-                            apply_directory_result(empty_source_list(index), Ok(source_list));
-                        self.source_list = source_list;
-                        self.directory_error = directory_error;
-                    }
-                    Err(error) => {
-                        logging::error(&format!(
-                            "Could not load the {} addon directory: {error}",
-                            GAME_FLAVORS[index].label
-                        ));
-                        let (source_list, directory_error) = apply_directory_result(
-                            empty_source_list(index),
-                            Err(error.to_string()),
-                        );
-                        self.source_list = source_list;
-                        self.directory_error = directory_error
-                            .map(|error| format!("Could not load directory: {error}"));
-                    }
-                }
+                let (source_list, directory_error, directory_stale) =
+                    adopt_directory_load(index, &self.source_base_url, empty_source_list(index));
+                self.source_list = source_list;
+                self.directory_error = directory_error;
+                self.directory_stale = directory_stale;
                 if let Some(id) = &self.expanded_addon_id
                     && !self.source_list.addons.iter().any(|addon| addon.id == *id)
                 {
@@ -572,10 +508,12 @@ impl Component for WinWam {
                     Ok(()) => {
                         self.refresh_installed();
                         self.directory_error = None;
+                        self.directory_stale = false;
                     }
                     Err(error) => {
                         logging::error(&format!("Could not install addon: {error}"));
                         self.directory_error = Some(format!("Could not install addon: {error}"));
+                        self.directory_stale = false;
                     }
                 }
             }
@@ -588,10 +526,12 @@ impl Component for WinWam {
                     Ok(()) => {
                         self.refresh_installed();
                         self.directory_error = None;
+                        self.directory_stale = false;
                     }
                     Err(error) => {
                         logging::error(&format!("Could not uninstall addon: {error}"));
                         self.directory_error = Some(format!("Could not uninstall addon: {error}"));
+                        self.directory_stale = false;
                     }
                 }
             }
@@ -599,26 +539,21 @@ impl Component for WinWam {
                 let url = self.pending_source_base_url.trim().trim_end_matches('/');
                 if url.starts_with("https://") {
                     self.source_base_url = url.to_string();
-                    match load_source_list(self.selected_flavor, &self.source_base_url) {
-                        Ok(source_list) => {
-                            self.source_list = source_list;
-                            self.directory_error = None;
-                        }
-                        Err(error) => {
-                            logging::error(&format!(
-                                "Could not apply addon directory source: {error}"
-                            ));
-                            self.source_list = empty_source_list(self.selected_flavor);
-                            self.directory_error =
-                                Some(format!("Could not load directory: {error}"));
-                        }
-                    }
+                    let (source_list, directory_error, directory_stale) = adopt_directory_load(
+                        self.selected_flavor,
+                        &self.source_base_url,
+                        self.source_list.clone(),
+                    );
+                    self.source_list = source_list;
+                    self.directory_error = directory_error;
+                    self.directory_stale = directory_stale;
                     self.refresh_installed();
                     self.persist_settings();
                 } else {
                     logging::error("Rejected a non-HTTPS addon directory source");
                     self.directory_error =
                         Some("The addon source must be an HTTPS URL.".to_string());
+                    self.directory_stale = false;
                     self.persist_settings();
                 }
             }
@@ -1231,8 +1166,16 @@ impl WinWam {
                 InfoBar::new()
                     .is_open(true)
                     .is_closable(false)
-                    .severity(InfoBarSeverity::Error)
-                    .title("Directory unavailable")
+                    .severity(if self.directory_stale {
+                        InfoBarSeverity::Warning
+                    } else {
+                        InfoBarSeverity::Error
+                    })
+                    .title(if self.directory_stale {
+                        "Saved directory"
+                    } else {
+                        "Directory unavailable"
+                    })
                     .message(error.clone()),
             ));
         }
@@ -2270,6 +2213,54 @@ fn apply_directory_result(
     }
 }
 
+fn adopt_directory_result(
+    result: Result<AddonSourceList, String>,
+    cache: Option<AddonSourceList>,
+    current: AddonSourceList,
+) -> (AddonSourceList, Option<String>, bool) {
+    match result {
+        Ok(source_list) => (source_list, None, false),
+        Err(error) => {
+            let (recovered, stale) = directory::keep_last_cache(
+                Err(directory::DirectoryError::Network(error.clone())),
+                cache,
+            );
+            if stale && let Some(source_list) = recovered {
+                (
+                    source_list,
+                    Some(directory::STALE_DIRECTORY_MESSAGE.to_string()),
+                    true,
+                )
+            } else {
+                let (source_list, directory_error) = apply_directory_result(current, Err(error));
+                (
+                    source_list,
+                    directory_error.map(|error| format!("Could not load directory: {error}")),
+                    false,
+                )
+            }
+        }
+    }
+}
+
+fn adopt_directory_load(
+    index: usize,
+    source_base_url: &str,
+    current: AddonSourceList,
+) -> (AddonSourceList, Option<String>, bool) {
+    match load_source_list(index, source_base_url) {
+        Ok(source_list) => (source_list, None, false),
+        Err(error) => {
+            logging::error(&format!("Could not load the addon directory: {error}"));
+            adopt_directory_result(
+                Err(error.to_string()),
+                directory::load_cached_directory(GAME_FLAVORS[index].slug),
+                current,
+            )
+        }
+    }
+}
+
 fn flavor_index_from_slug(slug: &str) -> usize {
     GAME_FLAVORS
         .iter()
@@ -2389,71 +2380,6 @@ fn detect_wow_folder(index: usize) -> Option<PathBuf> {
         .find(|path| is_wow_folder_for_flavor(path, index))
 }
 
-fn default_flavor() -> String {
-    "Retail".to_string()
-}
-
-fn default_host() -> String {
-    "github.com".to_string()
-}
-
-#[cfg(debug_assertions)]
-fn development_source_list() -> Option<AddonSourceList> {
-    serde_json::from_str(DEVELOPMENT_DIRECTORY_JSON).ok()
-}
-
-#[cfg(not(debug_assertions))]
-fn development_source_list() -> Option<AddonSourceList> {
-    None
-}
-
-fn load_source_list(
-    index: usize,
-    source_base_url: &str,
-) -> Result<AddonSourceList, Box<dyn std::error::Error>> {
-    let flavor = GAME_FLAVORS[index];
-    #[cfg(debug_assertions)]
-    let local_path = PathBuf::from(LOCAL_TEST_ROOT)
-        .join("directory")
-        .join(format!("addons.{}.json", flavor.slug));
-    #[cfg(debug_assertions)]
-    let body = if local_path.is_file() {
-        std::fs::read_to_string(local_path)?
-    } else {
-        let url = format!("{source_base_url}/addons.{}.json", flavor.slug);
-        let mut response = ureq::get(&url).call()?;
-        response.body_mut().read_to_string()?
-    };
-    #[cfg(not(debug_assertions))]
-    let body = {
-        let url = format!("{source_base_url}/addons.{}.json", flavor.slug);
-        let mut response = ureq::get(&url).call()?;
-        response.body_mut().read_to_string()?
-    };
-    let source_list: AddonSourceList = serde_json::from_str(body.trim_start_matches('\u{feff}'))?;
-    if source_list.flavor != flavor.schema_value {
-        return Err(format!(
-            "expected {} directory, received {}",
-            flavor.schema_value, source_list.flavor
-        )
-        .into());
-    }
-    Ok(source_list)
-}
-
-fn empty_source_list(index: usize) -> AddonSourceList {
-    AddonSourceList {
-        schema_version: "1.0".to_string(),
-        directory: DirectoryInfo {
-            name: "WoW Addons Directory".to_string(),
-            repository: "https://github.com/bitobrian/wow-addons-directory".to_string(),
-            description: Some("No directory data is available for this flavor.".to_string()),
-        },
-        flavor: GAME_FLAVORS[index].label.to_string(),
-        addons: Vec::new(),
-    }
-}
-
 fn main() {
     logging::initialize();
     logging::debug("Starting WinWam");
@@ -2499,20 +2425,20 @@ mod tests {
             host: "github.com".into(),
             owner: "winwam-test".into(),
             repo: id.into(),
-            version: None,
-            homepage: None,
             category: "Bags".into(),
             tags: vec!["inventory".into()],
+            ..Addon::default()
         }
     }
 
     fn sample_source_list(ids: &[&str]) -> AddonSourceList {
         AddonSourceList {
             schema_version: "1.0".into(),
-            directory: DirectoryInfo {
+            directory: directory::DirectoryInfo {
                 name: "test".into(),
                 repository: "https://github.com/bitobrian/wow-addons-directory".into(),
                 description: None,
+                generated_at: None,
             },
             flavor: "Retail".into(),
             addons: ids.iter().copied().map(sample_addon).collect(),
@@ -2610,10 +2536,9 @@ mod tests {
             host: "github.com".into(),
             owner: "winwam-test".into(),
             repo: "test-bag-manager".into(),
-            version: None,
-            homepage: None,
             category: "Bags".into(),
             tags: vec!["inventory".into()],
+            ..Addon::default()
         };
         assert!(matches_query(&addon, "bag"));
         assert!(matches_query(&addon, "northwind"));

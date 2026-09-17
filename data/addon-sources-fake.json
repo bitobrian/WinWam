@@ -1,6 +1,6 @@
 {
   "$schema": "./addon-sources.schema.json",
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "directory": {
     "name": "WinWam Open Addon Directory",
     "repository": "https://github.com/winwam/directory",
@@ -21,6 +21,53 @@
         "alerts",
         "cooldowns",
         "combat"
+      ],
+      "version": "1.2.0",
+      "homepage": "https://github.com/winwam-samples/arcane-alerts",
+      "sourceUrl": "https://github.com/winwam-samples/arcane-alerts",
+      "supportUrls": [
+        {
+          "label": "GitHub Sponsors",
+          "url": "https://github.com/sponsors/winwam-samples"
+        },
+        {
+          "label": "Ko-fi",
+          "url": "https://ko-fi.com/winwam"
+        }
+      ],
+      "icon": {
+        "url": "https://github.com/winwam-samples/arcane-alerts/raw/main/icon.png",
+        "width": 58,
+        "height": 58,
+        "mimeType": "image/png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "banner": {
+        "url": "https://github.com/winwam-samples/arcane-alerts/raw/main/banner.jpg",
+        "width": 760,
+        "height": 180,
+        "mimeType": "image/jpeg",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "latestRelease": {
+        "version": "1.2.0",
+        "publishedAt": "2026-09-01T12:00:00Z",
+        "archiveUrl": "https://github.com/winwam-samples/arcane-alerts/releases/download/v1.2.0/arcane-alerts.zip",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "flavors": [
+          "Retail"
+        ],
+        "interfaceVersions": [
+          "120000"
+        ],
+        "changelogUrl": "https://github.com/winwam-samples/arcane-alerts/releases/tag/v1.2.0"
+      },
+      "downloadCount": 12300,
+      "downloadCountCapturedAt": "2026-09-17T00:00:00Z",
+      "description": "Arcane Alerts watches important combat events and surfaces them with cooldown-aware, priority-based notifications.",
+      "features": [
+        "Cooldown tracking",
+        "Priority-based alerts"
       ]
     },
     {

@@ -1,0 +1,61 @@
+{
+  "$schema": "../addon-sources.schema.json",
+  "schemaVersion": "1.1",
+  "directory": {
+    "name": "WinWam Open Addon Directory",
+    "repository": "https://github.com/winwam/directory",
+    "description": "Fixture with http and javascript URLs that must be stripped."
+  },
+  "flavor": "Retail",
+  "addons": [
+    {
+      "id": "arcane-alerts",
+      "name": "Arcane Alerts",
+      "summary": "Configurable combat notifications.",
+      "author": "Northwind Labs",
+      "sourceKind": "GitHub",
+      "owner": "winwam-samples",
+      "repo": "arcane-alerts",
+      "category": "Combat",
+      "host": "github.com",
+      "sourceUrl": "http://github.com/winwam-samples/arcane-alerts",
+      "supportUrls": [
+        {
+          "label": "Inject",
+          "url": "javascript:alert(1)"
+        },
+        {
+          "label": "Source",
+          "url": "https://github.com/winwam-samples/arcane-alerts"
+        }
+      ],
+      "icon": {
+        "url": "http://example.com/icon.png",
+        "width": 58,
+        "height": 58,
+        "mimeType": "image/png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "banner": {
+        "url": "javascript:void(0)",
+        "width": 760,
+        "height": 180,
+        "mimeType": "image/webp",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "latestRelease": {
+        "version": "1.2.0",
+        "publishedAt": "2026-09-01T12:00:00Z",
+        "archiveUrl": "javascript:void(0)",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "flavors": [
+          "Retail"
+        ],
+        "interfaceVersions": [
+          "120000"
+        ],
+        "changelogUrl": "http://example.com/changelog"
+      }
+    }
+  ]
+}

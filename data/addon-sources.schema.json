@@ -5,51 +5,297 @@
   "description": "A versioned list of open-source World of Warcraft addons for a single game flavor.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "directory", "flavor", "addons"],
+  "required": [
+    "schemaVersion",
+    "directory",
+    "flavor",
+    "addons"
+  ],
   "properties": {
-    "$schema": { "type": "string", "format": "uri-reference" },
-    "schemaVersion": { "const": "1.0" },
+    "$schema": {
+      "type": "string",
+      "format": "uri-reference"
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$"
+    },
     "directory": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "repository"],
+      "required": [
+        "name",
+        "repository"
+      ],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "repository": { "type": "string", "format": "uri", "pattern": "^https://github\\.com/" },
-        "description": { "type": "string" }
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://github\\.com/"
+        },
+        "description": {
+          "type": "string"
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "flavor": {
-      "enum": ["Retail", "MoPClassic", "Classic", "BCAnniversary", "Forever"]
+      "enum": [
+        "Retail",
+        "MoPClassic",
+        "Classic",
+        "BCAnniversary",
+        "Forever"
+      ]
     },
     "addons": {
       "type": "array",
-      "items": { "$ref": "#/$defs/addon" }
+      "items": {
+        "$ref": "#/$defs/addon"
+      }
     }
   },
   "$defs": {
-    "addon": {
+    "httpsUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "asset": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "summary", "author", "sourceKind", "owner", "repo", "category"],
+      "required": [
+        "url",
+        "width",
+        "height",
+        "mimeType",
+        "sha256"
+      ],
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-        "name": { "type": "string", "minLength": 1 },
-        "summary": { "type": "string", "minLength": 1, "maxLength": 300 },
-        "author": { "type": "string", "minLength": 1 },
-        "sourceKind": { "enum": ["GitHub", "GitLab", "Gitea"] },
-        "host": { "type": "string", "format": "hostname", "default": "github.com" },
-        "owner": { "type": "string", "minLength": 1 },
-        "repo": { "type": "string", "minLength": 1 },
-        "version": { "type": "string", "minLength": 1 },
-        "homepage": { "type": "string", "format": "uri" },
+        "url": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mimeType": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ]
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "supportUrl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "url"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "$ref": "#/$defs/httpsUrl"
+        }
+      }
+    },
+    "latestRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "publishedAt",
+        "archiveUrl",
+        "sha256",
+        "flavors",
+        "interfaceVersions"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archiveUrl": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "flavors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "Retail",
+              "MoPClassic",
+              "Classic",
+              "BCAnniversary",
+              "Forever"
+            ]
+          }
+        },
+        "interfaceVersions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "changelogUrl": {
+          "$ref": "#/$defs/httpsUrl"
+        }
+      }
+    },
+    "addon": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "name",
+        "summary",
+        "author",
+        "sourceKind",
+        "owner",
+        "repo",
+        "category"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceKind": {
+          "enum": [
+            "GitHub",
+            "GitLab",
+            "Gitea"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "format": "hostname",
+          "default": "github.com"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "homepage": {
+          "type": "string",
+          "format": "uri"
+        },
         "category": {
-          "enum": ["Combat", "Raiding", "Dungeons", "Interface", "Bags", "Economy", "Collections", "Quests", "Nameplates", "ActionBars", "UnitFrames", "QualityOfLife", "Roleplay", "Libraries", "Development"]
+          "enum": [
+            "Combat",
+            "Raiding",
+            "Dungeons",
+            "Interface",
+            "Bags",
+            "Economy",
+            "Collections",
+            "Quests",
+            "Nameplates",
+            "ActionBars",
+            "UnitFrames",
+            "QualityOfLife",
+            "Roleplay",
+            "Libraries",
+            "Development"
+          ]
         },
         "tags": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        },
+        "sourceUrl": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "supportUrls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/supportUrl"
+          }
+        },
+        "icon": {
+          "$ref": "#/$defs/asset"
+        },
+        "banner": {
+          "$ref": "#/$defs/asset"
+        },
+        "latestRelease": {
+          "$ref": "#/$defs/latestRelease"
+        },
+        "downloadCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "downloadCountCapturedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     }
