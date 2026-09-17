@@ -77,6 +77,7 @@ enum UpdateStatus {
     Idle,
     Checking,
     Current,
+    UpdatesAvailable(usize),
     Failed(String),
 }
 
@@ -96,6 +97,7 @@ enum Message {
     Navigate(Page),
     Search(String),
     CheckForUpdates,
+    UpdateAll,
     DirectoryRefreshFinished(usize, Result<AddonSourceList, String>),
     ShowWorkshopScreen(WorkshopScreen),
     SelectFlavor(Option<usize>),
@@ -392,6 +394,16 @@ impl Component for WinWam {
                     surface.query = query;
                 }
             }
+            Message::UpdateAll => {
+                if self.fs_busy {
+                    return;
+                }
+                let ids = scan::pending_update_ids(&self.installed_addons);
+                for id in &ids {
+                    self.installing_addon_ids.insert(id.clone());
+                    self.enqueue_fs(FsOp::Install(id.clone()), context);
+                }
+            }
             Message::CheckForUpdates => {
                 if self.wow_folder_missing || matches!(self.update_status, UpdateStatus::Checking) {
                     return;
@@ -421,7 +433,7 @@ impl Component for WinWam {
                 self.directory_stale = directory_stale;
                 self.refresh_installed();
                 self.update_status = match &directory_error {
-                    None => UpdateStatus::Current,
+                    None => self.updates_status_from_installed(),
                     Some(error) => UpdateStatus::Failed(error.clone()),
                 };
                 if let Some(id) = &self.expanded_addon_id
@@ -774,6 +786,7 @@ impl WinWam {
             UpdateStatus::Idle => String::new(),
             UpdateStatus::Checking => "Checking…".to_string(),
             UpdateStatus::Current => "Last checked: just now".to_string(),
+            UpdateStatus::UpdatesAvailable(count) => format!("{count} updates available."),
             UpdateStatus::Failed(_) => "Could not check for updates".to_string(),
         }
     }
@@ -781,12 +794,15 @@ impl WinWam {
     fn game_panel_view(&self, context: &ViewContext<Self>) -> View {
         let palette = theme::palette(self.selected_flavor);
         let checking = matches!(self.update_status, UpdateStatus::Checking);
+        let updates_available = matches!(self.update_status, UpdateStatus::UpdatesAvailable(_));
         let update_label = if checking {
             "Checking…"
+        } else if updates_available {
+            "Update All"
         } else {
             "Check for Updates"
         };
-        let update_enabled = !self.wow_folder_missing && !checking;
+        let update_enabled = !self.wow_folder_missing && !checking && !self.fs_busy;
         let availability: View = if self.directory_error.is_none() {
             TextBlock::new()
                 .text(format!(
@@ -868,9 +884,13 @@ impl WinWam {
                                             .height(theme::CONTROL_HEIGHT)
                                             .horizontal_alignment(HorizontalAlignment::Stretch)
                                             .enabled(update_enabled)
-                                            .on_click(
-                                                context.callback(|_| Message::CheckForUpdates),
-                                            ),
+                                            .on_click(context.callback(move |_| {
+                                                if updates_available {
+                                                    Message::UpdateAll
+                                                } else {
+                                                    Message::CheckForUpdates
+                                                }
+                                            })),
                                         theme::icon_outline_button(palette, Symbol::Setting)
                                             .grid_column(1)
                                             .automation_name("Settings")
@@ -997,8 +1017,36 @@ impl WinWam {
             self.selected_flavor,
             &self.source_list.addons,
         );
+        let addons_path = addons_folder(Path::new(self.wow_folder.trim()), self.selected_flavor);
+        if addons_path.as_ref().is_none_or(|path| !path.is_dir()) {
+            self.wow_folder_missing = true;
+            if !matches!(
+                self.update_status,
+                UpdateStatus::Checking | UpdateStatus::Failed(_)
+            ) {
+                self.update_status = self.updates_status_from_installed();
+            }
+            return;
+        }
+        self.wow_folder_missing =
+            !is_wow_folder_for_flavor(Path::new(self.wow_folder.trim()), self.selected_flavor);
         self.installed_addons = installed_addons;
         self.installed_addon_ids = installed_addon_ids;
+        if !matches!(
+            self.update_status,
+            UpdateStatus::Checking | UpdateStatus::Failed(_)
+        ) {
+            self.update_status = self.updates_status_from_installed();
+        }
+    }
+
+    fn updates_status_from_installed(&self) -> UpdateStatus {
+        let count = scan::pending_update_ids(&self.installed_addons).len();
+        if count > 0 {
+            UpdateStatus::UpdatesAvailable(count)
+        } else {
+            UpdateStatus::Current
+        }
     }
 
     fn addon_display_name(&self, id: &str) -> String {
@@ -1065,7 +1113,7 @@ impl WinWam {
             .installed_addons
             .iter()
             .find(|installed| installed.id == id)
-            .and_then(|installed| installed.version.clone());
+            .and_then(|installed| installed.local_version.clone());
         Some(install::context_from_addon(
             addons_folder,
             addon,
@@ -1141,7 +1189,7 @@ impl WinWam {
                         let local_version = installed
                             .iter()
                             .find(|item| item.id == id)
-                            .and_then(|item| item.version.clone());
+                            .and_then(|item| item.local_version.clone());
                         let ctx = install::context_from_addon(
                             addons_folder.clone(),
                             addon,
@@ -1361,6 +1409,19 @@ impl WinWam {
                 },
             ),
         )];
+        if self.wow_folder_missing && !self.installed_addons.is_empty() {
+            children.push(KeyedView::new(
+                "missing-addons",
+                InfoBar::new()
+                    .is_open(true)
+                    .is_closable(false)
+                    .severity(InfoBarSeverity::Warning)
+                    .title("AddOns folder missing")
+                    .message(
+                        "The AddOns folder for this SKU is missing. Installed addons are from the last successful scan.",
+                    ),
+            ));
+        }
         if let Some(error) = &self.directory_error {
             children.push(KeyedView::new(
                 "error",
@@ -1474,13 +1535,12 @@ impl WinWam {
             let cards = addons
                 .iter()
                 .map(|addon| {
-                    let installed = self.installed_addon_ids.contains(&addon.id);
-                    let managed = self
+                    let installed_row = self
                         .installed_addons
                         .iter()
-                        .find(|item| item.id == addon.id)
-                        .map(|item| item.managed)
-                        .unwrap_or(false);
+                        .find(|item| item.id == addon.id);
+                    let installed = installed_row.is_some();
+                    let managed = installed_row.map(|item| item.managed).unwrap_or(false);
                     KeyedView::new(
                         addon.id.clone(),
                         addon_card(
@@ -1490,6 +1550,9 @@ impl WinWam {
                             AddonCardState {
                                 installed,
                                 managed,
+                                update_available: installed_row.is_some_and(|item| {
+                                    item.state == scan::InstallState::ManagedUpdateAvailable
+                                }),
                                 expanded: self.expanded_addon_id.as_deref()
                                     == Some(addon.id.as_str()),
                                 installing: self.installing_addon_ids.contains(&addon.id),
@@ -1626,9 +1689,9 @@ impl WinWam {
                     .map(|installed| Addon {
                         id: installed.id.clone(),
                         name: installed.title.clone(),
-                        author: String::new(),
+                        author: installed.author.clone().unwrap_or_default(),
                         category: String::new(),
-                        version: installed.version.clone(),
+                        version: installed.local_version.clone(),
                         ..Addon::default()
                     })
             })
@@ -1640,17 +1703,20 @@ impl WinWam {
         palette: &theme::Palette,
         context: &ViewContext<Self>,
     ) -> View {
-        let installed = self.installed_addon_ids.contains(&addon.id);
-        let managed = self
+        let installed_row = self
             .installed_addons
             .iter()
-            .find(|item| item.id == addon.id)
-            .map(|item| item.managed)
-            .unwrap_or(false);
+            .find(|item| item.id == addon.id);
+        let installed = installed_row.is_some();
+        let managed = installed_row.map(|item| item.managed).unwrap_or(false);
         let installing = self.installing_addon_ids.contains(&addon.id);
         let locked = self.fs_busy && !installing;
         let status = if installing {
             "Installing"
+        } else if installed_row
+            .is_some_and(|item| item.state == scan::InstallState::ManagedUpdateAvailable)
+        {
+            "Update available"
         } else if installed && managed {
             "Installed"
         } else if installed {
@@ -1658,7 +1724,11 @@ impl WinWam {
         } else {
             "Not installed"
         };
-        let version = addon
+        let installed_row = self
+            .installed_addons
+            .iter()
+            .find(|item| item.id == addon.id);
+        let catalog_version = addon
             .latest_release
             .as_ref()
             .map(|release| release.version.as_str())
@@ -1671,10 +1741,16 @@ impl WinWam {
         let source = directory::resolved_source_url(addon);
         let support = addon.support_urls.first().map(|item| item.url.clone());
         let mut sidebar = vec![KeyedView::new("status", theme::stat_chip(palette, status))];
-        if let Some(version) = version {
+        if let Some(version) = installed_row.and_then(|item| item.local_version.as_deref()) {
             sidebar.push(KeyedView::new(
-                "version",
-                meta_row(palette, "Version", version),
+                "local-version",
+                meta_row(palette, "Installed version", version),
+            ));
+        }
+        if let Some(version) = catalog_version {
+            sidebar.push(KeyedView::new(
+                "catalog-version",
+                meta_row(palette, "Catalog version", version),
             ));
         }
         sidebar.push(KeyedView::new(
@@ -1703,6 +1779,17 @@ impl WinWam {
                 .height(28.0)
                 .is_indeterminate(true)
                 .is_active(true)
+                .into()
+        } else if installed_row
+            .is_some_and(|item| item.state == scan::InstallState::ManagedUpdateAvailable)
+        {
+            theme::accent_button(palette, "Update")
+                .enabled(!locked)
+                .automation_name(format!("Update {}", addon.name))
+                .on_click({
+                    let id = addon.id.clone();
+                    context.callback(move |_| Message::InstallAddon(id.clone()))
+                })
                 .into()
         } else if !installed {
             theme::accent_button(palette, "Install")
@@ -2353,6 +2440,7 @@ struct AddonCardState {
     expanded: bool,
     installing: bool,
     locked: bool,
+    update_available: bool,
     error: Option<String>,
 }
 
@@ -2368,6 +2456,7 @@ fn addon_card(
         expanded,
         installing,
         locked,
+        update_available,
         error,
     } = state;
     let overlay: View = if installing {
@@ -2388,6 +2477,18 @@ fn addon_card(
                     .font_size(theme::META_SIZE)
                     .foreground(palette.accent),
             ))
+    } else if update_available {
+        theme::accent_button(palette, "Update")
+            .height(32.0)
+            .horizontal_alignment(HorizontalAlignment::Right)
+            .vertical_alignment(VerticalAlignment::Bottom)
+            .enabled(!locked)
+            .automation_name(format!("Update {}", addon.name))
+            .on_click({
+                let id = addon.id.clone();
+                context.callback(move |_| Message::InstallAddon(id.clone()))
+            })
+            .into()
     } else if !installed {
         theme::accent_button(palette, "Install")
             .height(32.0)
@@ -2539,6 +2640,7 @@ fn message_telemetry(message: &Message) -> String {
         Message::Navigate(Page::Workshop) => "Navigation → Workshop".to_string(),
         Message::Navigate(Page::Settings) => "Navigation → Settings".to_string(),
         Message::CheckForUpdates => "Check for updates requested".to_string(),
+        Message::UpdateAll => "Update all requested".to_string(),
         Message::DirectoryRefreshFinished(_, Ok(_)) => "Directory refresh completed".to_string(),
         Message::DirectoryRefreshFinished(_, Err(error)) => {
             format!("Directory refresh failed · {error}")
@@ -2810,10 +2912,19 @@ fn addons_folder(wow_folder: &Path, index: usize) -> Option<PathBuf> {
 fn catalog_entries(addons: &[Addon]) -> Vec<scan::CatalogEntry<'_>> {
     addons
         .iter()
-        .map(|addon| scan::CatalogEntry {
-            id: &addon.id,
-            name: &addon.name,
-            repo: &addon.repo,
+        .map(|addon| {
+            let mut entry = scan::CatalogEntry::new(&addon.id, &addon.name, &addon.repo);
+            entry.catalog_version = addon
+                .latest_release
+                .as_ref()
+                .map(|release| release.version.as_str())
+                .or(addon.version.as_deref());
+            entry.interface_versions = addon
+                .latest_release
+                .as_ref()
+                .map(|release| release.interface_versions.as_slice())
+                .unwrap_or(&[]);
+            entry
         })
         .collect()
 }

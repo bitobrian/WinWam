@@ -295,8 +295,47 @@ pub fn uninstall_addon(addons_folder: &Path, addon_id: &str) -> Result<Vec<Strin
     Ok(owned)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VersionStatus {
+    MissingLocal,
+    MissingCatalog,
+    Custom,
+    Prerelease,
+    Newer,
+    Older,
+    Equal,
+}
+
 pub fn version_cmp(local: &str, catalog: &str) -> Option<Ordering> {
     Some(parse_dotted_version(local)?.cmp(&parse_dotted_version(catalog)?))
+}
+
+pub fn version_status(local: Option<&str>, catalog: Option<&str>) -> VersionStatus {
+    let local = local.map(str::trim).filter(|value| !value.is_empty());
+    let catalog = catalog.map(str::trim).filter(|value| !value.is_empty());
+    match (local, catalog) {
+        (None, _) => VersionStatus::MissingLocal,
+        (Some(_), None) => VersionStatus::MissingCatalog,
+        (Some(local), Some(catalog)) => {
+            if local.eq_ignore_ascii_case(catalog) {
+                VersionStatus::Equal
+            } else if is_prerelease(local) || is_prerelease(catalog) {
+                VersionStatus::Prerelease
+            } else {
+                match version_cmp(local, catalog) {
+                    Some(Ordering::Greater) => VersionStatus::Newer,
+                    Some(Ordering::Less) => VersionStatus::Older,
+                    Some(Ordering::Equal) => VersionStatus::Equal,
+                    None => VersionStatus::Custom,
+                }
+            }
+        }
+    }
+}
+
+fn is_prerelease(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains('-') || lower.contains("alpha") || lower.contains("beta") || lower.contains("rc")
 }
 
 pub fn context_from_addon(
@@ -1070,5 +1109,58 @@ mod tests {
         assert!(matches!(error, InstallError::Downgrade { .. }));
         assert_eq!(version_cmp("2.0.0", "1.2.0"), Some(Ordering::Greater));
         assert_eq!(version_cmp("1.2.0", "1.2.0"), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn version_status_does_not_mix_local_and_catalog() {
+        assert_eq!(
+            version_status(None, Some("1.0.0")),
+            VersionStatus::MissingLocal
+        );
+        assert_eq!(
+            version_status(Some("1.0.0"), None),
+            VersionStatus::MissingCatalog
+        );
+        assert_eq!(
+            version_status(Some("1.0.0-beta"), Some("1.0.0")),
+            VersionStatus::Prerelease
+        );
+        assert_eq!(
+            version_status(Some("1.1.0"), Some("1.2.0")),
+            VersionStatus::Older
+        );
+        assert_eq!(
+            version_status(Some("nightly"), Some("1.0.0")),
+            VersionStatus::Custom
+        );
+        assert_eq!(
+            version_status(Some("1.0.0"), Some("1.0.0")),
+            VersionStatus::Equal
+        );
+    }
+
+    #[test]
+    fn update_all_continues_after_one_failure() {
+        let root = temp_root("update-all");
+        let addons = root.join("AddOns");
+        fs::create_dir_all(&addons).unwrap();
+        let ok_zip = root.join("ok.zip");
+        write_stored_zip(
+            &ok_zip,
+            &[(
+                "OkAddon/OkAddon.toc",
+                sample_toc("OkAddon", "1.0.0").as_bytes(),
+            )],
+        )
+        .unwrap();
+        let mut results = Vec::new();
+        for (id, archive) in [("missing", root.join("nope.zip")), ("ok-addon", ok_zip)] {
+            let mut context = ctx(addons.clone(), archive, "1.0.0");
+            context.addon_id = id.into();
+            results.push(install_addon(&context));
+        }
+        fs::remove_dir_all(&root).ok();
+        assert!(results[0].is_err());
+        assert!(results[1].is_ok());
     }
 }
