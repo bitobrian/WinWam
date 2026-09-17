@@ -414,9 +414,7 @@ impl Component for WinWam {
                 self.browse_page = 0;
             }
             Message::CheckForUpdates => {
-                if self.wow_folder_missing
-                    || matches!(self.update_status, UpdateStatus::Checking)
-                {
+                if self.wow_folder_missing || matches!(self.update_status, UpdateStatus::Checking) {
                     return;
                 }
                 self.update_status = UpdateStatus::Checking;
@@ -445,8 +443,7 @@ impl Component for WinWam {
                     }
                     Some(error) => {
                         self.source_list = source_list;
-                        self.directory_error =
-                            Some(format!("Could not load directory: {error}"));
+                        self.directory_error = Some(format!("Could not load directory: {error}"));
                         self.update_status = UpdateStatus::Failed(error.clone());
                     }
                 }
@@ -490,10 +487,10 @@ impl Component for WinWam {
                             .map(|error| format!("Could not load directory: {error}"));
                     }
                 }
-                if let Some(id) = &self.expanded_addon_id {
-                    if !self.source_list.addons.iter().any(|addon| addon.id == *id) {
-                        self.expanded_addon_id = None;
-                    }
+                if let Some(id) = &self.expanded_addon_id
+                    && !self.source_list.addons.iter().any(|addon| addon.id == *id)
+                {
+                    self.expanded_addon_id = None;
                 }
                 self.refresh_installed();
                 self.persist_settings();
@@ -634,7 +631,10 @@ impl Component for WinWam {
         context.on_window_size(self.resize_callback.clone());
         context.window_visuals(
             WindowVisuals::new()
-                .client_size(theme::REFERENCE_CLIENT_WIDTH, theme::REFERENCE_CLIENT_HEIGHT)
+                .client_size(
+                    theme::REFERENCE_CLIENT_WIDTH,
+                    theme::REFERENCE_CLIENT_HEIGHT,
+                )
                 .constraints(WindowConstraints {
                     min_width: Some(theme::MIN_CLIENT_WIDTH),
                     min_height: Some(theme::MIN_CLIENT_HEIGHT),
@@ -654,10 +654,7 @@ impl Component for WinWam {
             .slots([SlotView::new(
                 TitleBarSlot::Content,
                 Grid::new()
-                    .columns([
-                        GridLength::Pixel(theme::GAME_PANEL_WIDTH),
-                        GridLength::STAR,
-                    ])
+                    .columns([GridLength::Pixel(theme::GAME_PANEL_WIDTH), GridLength::STAR])
                     .children((
                         StackPanel::new()
                             .orientation(Orientation::Horizontal)
@@ -737,7 +734,6 @@ impl Component for WinWam {
                 .horizontal_alignment(HorizontalAlignment::Right)
                 .vertical_alignment(VerticalAlignment::Stretch)
                 .content(self.hood_view())
-                .into()
         } else {
             Border::new().width(0.0).into()
         };
@@ -763,10 +759,7 @@ impl Component for WinWam {
                     format!("body-theme-{}", self.selected_flavor),
                     Grid::new()
                         .grid_row(1)
-                        .columns([
-                            GridLength::Pixel(theme::GAME_PANEL_WIDTH),
-                            GridLength::STAR,
-                        ])
+                        .columns([GridLength::Pixel(theme::GAME_PANEL_WIDTH), GridLength::STAR])
                         .children((self.game_panel_view(context), content_column)),
                 ),
             ])
@@ -825,12 +818,7 @@ impl WinWam {
         } else {
             Border::new().height(0.0).into()
         };
-        let accent_glow = Color::argb(
-            0x2E,
-            palette.accent.r,
-            palette.accent.g,
-            palette.accent.b,
-        );
+        let accent_glow = Color::argb(0x2E, palette.accent.r, palette.accent.g, palette.accent.b);
         Border::new()
             .grid_column(0)
             .background(palette.sidebar_bg)
@@ -902,9 +890,11 @@ impl WinWam {
                                         theme::icon_outline_button(palette, Symbol::Setting)
                                             .grid_column(1)
                                             .automation_name("Settings")
-                                            .on_click(context.callback(|_| {
-                                                Message::Navigate(Page::Settings)
-                                            })),
+                                            .on_click(
+                                                context.callback(|_| {
+                                                    Message::Navigate(Page::Settings)
+                                                }),
+                                            ),
                                     )),
                                 TextBlock::new()
                                     .text(self.update_status_text())
@@ -943,8 +933,7 @@ impl WinWam {
                         .on_click(context.callback(|_| {
                             Message::ShowWorkshopScreen(WorkshopScreen::Anatomy)
                         })),
-                ))
-                .into(),
+                )),
             WorkshopScreen::Anatomy => StackPanel::new()
                 .spacing(12.0)
                 .children((
@@ -957,8 +946,7 @@ impl WinWam {
                         .on_click(context.callback(|_| {
                             Message::ShowWorkshopScreen(WorkshopScreen::Overview)
                         })),
-                ))
-                .into(),
+                )),
         };
         ScrollViewer::new()
             .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
@@ -2138,18 +2126,12 @@ fn message_telemetry(message: &Message) -> String {
         Message::Navigate(Page::Workshop) => "Navigation → Workshop".to_string(),
         Message::Navigate(Page::Settings) => "Navigation → Settings".to_string(),
         Message::CheckForUpdates => "Check for updates requested".to_string(),
-        Message::DirectoryRefreshFinished(_, Ok(_)) => {
-            "Directory refresh completed".to_string()
-        }
+        Message::DirectoryRefreshFinished(_, Ok(_)) => "Directory refresh completed".to_string(),
         Message::DirectoryRefreshFinished(_, Err(error)) => {
             format!("Directory refresh failed · {error}")
         }
-        Message::ShowWorkshopScreen(WorkshopScreen::Overview) => {
-            "Workshop → Overview".to_string()
-        }
-        Message::ShowWorkshopScreen(WorkshopScreen::Anatomy) => {
-            "Workshop → Anatomy".to_string()
-        }
+        Message::ShowWorkshopScreen(WorkshopScreen::Overview) => "Workshop → Overview".to_string(),
+        Message::ShowWorkshopScreen(WorkshopScreen::Anatomy) => "Workshop → Anatomy".to_string(),
         Message::Search(query) => format!("Search changed · {} characters", query.len()),
         Message::SelectFlavor(index) => format!("SKU selection changed · {index:?}"),
         Message::SelectCategory(index) => format!("Category selection changed · {index:?}"),
@@ -2236,7 +2218,6 @@ fn unique_categories(addons: &[Addon]) -> Vec<String> {
         .into_iter()
         .collect()
 }
-
 
 fn initial_page(missing: bool, last: Option<&str>) -> Page {
     if missing {
@@ -2557,7 +2538,10 @@ mod tests {
             initial_page(false, last_pages.get("retail").map(String::as_str)),
             Page::Discover
         );
-        last_pages.insert("retail".to_string(), page_slug(Page::Loadouts).unwrap().into());
+        last_pages.insert(
+            "retail".to_string(),
+            page_slug(Page::Loadouts).unwrap().into(),
+        );
         assert_eq!(
             initial_page(false, last_pages.get("forever").map(String::as_str)),
             Page::Workshop
@@ -2589,26 +2573,28 @@ mod tests {
         assert_eq!(installed[0].query, "raid");
         assert_eq!(discover[4].query, "quest");
         assert!(installed[4].query.is_empty());
-        assert!(active_catalog_surface_mut(Page::Workshop, 0, &mut discover, &mut installed).is_none());
+        assert!(
+            active_catalog_surface_mut(Page::Workshop, 0, &mut discover, &mut installed).is_none()
+        );
     }
 
     #[test]
     fn apply_directory_result_keeps_nonempty_catalog() {
         let current = sample_source_list(&["arcane-alerts", "bag-commander"]);
-        let (kept, error) =
-            apply_directory_result(current, Err("network down".to_string()));
+        let (kept, error) = apply_directory_result(current, Err("network down".to_string()));
         assert_eq!(kept.addons.len(), 2);
         assert_eq!(kept.addons[0].id, "arcane-alerts");
         assert_eq!(error.as_deref(), Some("network down"));
 
         let empty = sample_source_list(&[]);
-        let (kept_empty, error) =
-            apply_directory_result(empty, Err("network down".to_string()));
+        let (kept_empty, error) = apply_directory_result(empty, Err("network down".to_string()));
         assert!(kept_empty.addons.is_empty());
         assert!(error.is_some());
 
-        let (replaced, error) =
-            apply_directory_result(sample_source_list(&["old"]), Ok(sample_source_list(&["new"])));
+        let (replaced, error) = apply_directory_result(
+            sample_source_list(&["old"]),
+            Ok(sample_source_list(&["new"])),
+        );
         assert_eq!(replaced.addons[0].id, "new");
         assert!(error.is_none());
     }

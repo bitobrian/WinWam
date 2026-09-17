@@ -88,8 +88,7 @@ fn sanitize_last_pages(pages: &BTreeMap<String, String>) -> BTreeMap<String, Str
     pages
         .iter()
         .filter(|(slug, page)| {
-            KNOWN_FLAVOR_SLUGS.iter().any(|known| *known == slug.as_str())
-                && KNOWN_PAGE_SLUGS.iter().any(|known| *known == page.as_str())
+            KNOWN_FLAVOR_SLUGS.contains(&slug.as_str()) && KNOWN_PAGE_SLUGS.contains(&page.as_str())
         })
         .map(|(slug, page)| (slug.clone(), page.clone()))
         .collect()
