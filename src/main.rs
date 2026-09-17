@@ -1,10 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    cell::Cell,
     collections::{BTreeMap, BTreeSet, VecDeque},
     path::{Path, PathBuf},
-    rc::Rc,
 };
 
 use windows_reactor::*;
@@ -95,7 +93,7 @@ enum Message {
     ShowWorkshopScreen(WorkshopScreen),
     SelectFlavor(Option<usize>),
     SelectCategory(Option<usize>),
-    SelectSort(Option<usize>),
+    OpenHttpsUrl(String),
     SourceUrlChanged(String),
     WowFolderChanged(String),
     BrowseWowFolder,
@@ -105,9 +103,6 @@ enum Message {
     InstallFinished(String, Result<(), String>),
     UninstallAddon(String),
     ToggleAddonDetails(String),
-    PreviousBrowsePage,
-    NextBrowsePage,
-    BrowsePageSizeChanged(usize),
     ToggleHood,
     SelectTelemetryLevel(Option<usize>),
     NewLoadout,
@@ -133,14 +128,10 @@ struct WinWam {
     wow_folder: String,
     wow_folder_missing: bool,
     check_for_updates: bool,
-    sort_mode: usize,
     installed_addon_ids: BTreeSet<String>,
     installed_addons: Vec<scan::InstalledAddon>,
     expanded_addon_id: Option<String>,
     installing_addon_ids: BTreeSet<String>,
-    browse_page: usize,
-    browse_page_size: usize,
-    resize_callback: Callback<WindowSize>,
     hood_open: bool,
     telemetry_level: usize,
     telemetry_events: VecDeque<String>,
@@ -199,15 +190,6 @@ impl Component for WinWam {
             selected_flavor,
             &source_list.addons,
         );
-        let responsive_page_size = Rc::new(Cell::new(12));
-        let resize_state = Rc::clone(&responsive_page_size);
-        let sender = _context.sender();
-        let resize_callback = Callback::new(move |size: WindowSize| {
-            let page_size = browse_page_size(size);
-            if resize_state.replace(page_size) != page_size {
-                let _ = sender.send(Message::BrowsePageSizeChanged(page_size));
-            }
-        });
         let app = Self {
             source_list,
             page: initial_page(
@@ -225,14 +207,10 @@ impl Component for WinWam {
             wow_folder,
             wow_folder_missing,
             check_for_updates: settings.check_for_updates,
-            sort_mode: 0,
             installed_addon_ids,
             installed_addons,
             expanded_addon_id: None,
             installing_addon_ids: BTreeSet::new(),
-            browse_page: 0,
-            browse_page_size: responsive_page_size.get(),
-            resize_callback,
             hood_open: false,
             telemetry_level: settings.telemetry_level.min(3),
             telemetry_events: VecDeque::from(["WinWam telemetry stream ready".to_string()]),
@@ -365,7 +343,6 @@ impl Component for WinWam {
                 if let Some(surface) = self.active_catalog_surface_mut() {
                     surface.query = query;
                 }
-                self.browse_page = 0;
             }
             Message::CheckForUpdates => {
                 if self.wow_folder_missing || matches!(self.update_status, UpdateStatus::Checking) {
@@ -407,7 +384,6 @@ impl Component for WinWam {
                 }
                 self.remember_current_page();
                 self.selected_flavor = index;
-                self.browse_page = 0;
                 self.loadout_draft = None;
                 self.loadout_prompt = None;
                 self.wow_folder_missing =
@@ -434,18 +410,26 @@ impl Component for WinWam {
             Message::SelectFlavor(Some(_)) => {}
             Message::SelectFlavor(None) => {}
             Message::SelectCategory(Some(index)) => {
-                let categories = unique_categories(&self.source_list.addons);
+                let items = self.catalog_items();
+                let query = self
+                    .active_catalog_surface()
+                    .map(|surface| surface.query.to_lowercase())
+                    .unwrap_or_default();
+                let searched: Vec<Addon> = items
+                    .into_iter()
+                    .filter(|addon| matches_query(addon, &query))
+                    .collect();
+                let categories = directory::visible_categories(&searched);
                 if let Some(surface) = self.active_catalog_surface_mut() {
                     surface.category = categories.get(index).cloned();
                 }
-                self.browse_page = 0;
             }
             Message::SelectCategory(None) => {}
-            Message::SelectSort(Some(index)) => {
-                self.sort_mode = index;
-                self.browse_page = 0;
+            Message::OpenHttpsUrl(url) => {
+                if let Err(error) = directory::open_https_url(&url) {
+                    logging::error(&format!("Could not open {url}: {error}"));
+                }
             }
-            Message::SelectSort(None) => {}
             Message::SourceUrlChanged(url) => self.pending_source_base_url = url,
             Message::WowFolderChanged(path) => {
                 self.wow_folder_missing =
@@ -468,19 +452,6 @@ impl Component for WinWam {
             Message::ToggleUpdates(enabled) => {
                 self.check_for_updates = enabled;
                 self.persist_settings();
-            }
-            Message::BrowsePageSizeChanged(page_size) => {
-                self.browse_page_size = page_size;
-                self.browse_page = 0;
-                self.expanded_addon_id = None;
-            }
-            Message::PreviousBrowsePage => {
-                self.browse_page = self.browse_page.saturating_sub(1);
-                self.expanded_addon_id = None;
-            }
-            Message::NextBrowsePage => {
-                self.browse_page += 1;
-                self.expanded_addon_id = None;
             }
             Message::ToggleAddonDetails(id) => {
                 self.expanded_addon_id = if self.expanded_addon_id.as_deref() == Some(&id) {
@@ -563,7 +534,6 @@ impl Component for WinWam {
     fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
         let palette = theme::palette(self.selected_flavor);
         context.window_title("WinWam");
-        context.on_window_size(self.resize_callback.clone());
         context.window_visuals(
             WindowVisuals::new()
                 .client_size(
@@ -1096,69 +1066,102 @@ impl WinWam {
             )
     }
 
-    fn browse_view(&self, context: &ViewContext<Self>) -> View {
+    fn catalog_items(&self) -> Vec<Addon> {
+        match self.page {
+            Page::Installed => self
+                .installed_addons
+                .iter()
+                .map(|installed| {
+                    self.source_list
+                        .addons
+                        .iter()
+                        .find(|addon| addon.id == installed.id)
+                        .cloned()
+                        .unwrap_or_else(|| Addon {
+                            id: installed.id.clone(),
+                            name: installed.title.clone(),
+                            author: String::new(),
+                            category: String::new(),
+                            ..Addon::default()
+                        })
+                })
+                .collect(),
+            _ => self.source_list.addons.clone(),
+        }
+    }
+
+    fn active_catalog_surface(&self) -> Option<&CatalogSurfaceState> {
+        match self.page {
+            Page::Discover => self.discover_surfaces.get(self.selected_flavor),
+            Page::Installed => self.installed_surfaces.get(self.selected_flavor),
+            _ => None,
+        }
+    }
+
+    fn catalog_surface_view(&self, context: &ViewContext<Self>, discover: bool) -> View {
         let palette = theme::palette(self.selected_flavor);
-        let surface = &self.discover_surfaces[self.selected_flavor];
-        let categories = unique_categories(&self.source_list.addons);
+        let surface = if discover {
+            &self.discover_surfaces[self.selected_flavor]
+        } else {
+            &self.installed_surfaces[self.selected_flavor]
+        };
+        let items = if discover {
+            self.source_list.addons.clone()
+        } else {
+            self.installed_addons
+                .iter()
+                .map(|installed| {
+                    self.source_list
+                        .addons
+                        .iter()
+                        .find(|addon| addon.id == installed.id)
+                        .cloned()
+                        .unwrap_or_else(|| Addon {
+                            id: installed.id.clone(),
+                            name: installed.title.clone(),
+                            author: String::new(),
+                            category: String::new(),
+                            ..Addon::default()
+                        })
+                })
+                .collect()
+        };
         let query = surface.query.to_lowercase();
+        let searched: Vec<Addon> = items
+            .iter()
+            .filter(|addon| matches_query(addon, &query))
+            .cloned()
+            .collect();
+        let categories = directory::visible_categories(&searched);
         let selected_category = surface
             .category
             .as_ref()
             .filter(|category| categories.iter().any(|item| item == *category))
-            .or(categories.first());
-        let mut addons: Vec<&Addon> = self
-            .source_list
-            .addons
-            .iter()
-            .filter(|addon| matches_query(addon, &query))
-            .filter(|addon| match selected_category {
-                Some(category) => addon.category == *category,
-                None => true,
+            .cloned()
+            .or_else(|| categories.first().cloned());
+        let addons: Vec<Addon> = searched
+            .into_iter()
+            .filter(|addon| match selected_category.as_ref() {
+                Some(category) if !addon.category.is_empty() => addon.category == *category,
+                _ => true,
             })
             .collect();
-        addons.sort_by(|left, right| match self.sort_mode {
-            1 => left.author.to_lowercase().cmp(&right.author.to_lowercase()),
-            2 => left
-                .category
-                .to_lowercase()
-                .cmp(&right.category.to_lowercase()),
-            _ => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
-        });
 
-        let total_count = addons.len();
-        let page_count = total_count.div_ceil(self.browse_page_size).max(1);
-        let page = self.browse_page.min(page_count - 1);
-        let page_start = page * self.browse_page_size;
-        let shown_count = (total_count.saturating_sub(page_start)).min(self.browse_page_size);
-        let expanded_on_page = addons
-            .iter()
-            .skip(page_start)
-            .take(self.browse_page_size)
-            .any(|addon| self.expanded_addon_id.as_deref() == Some(addon.id.as_str()));
         let mut children = vec![KeyedView::new(
             "header",
-            Grid::new()
-                .columns([GridLength::STAR, GridLength::Auto])
-                .children((
-                    theme::page_header(
-                        palette,
-                        "Browse Addons",
-                        "Discover and install addons from the community",
-                    ),
-                    StackPanel::new()
-                        .grid_column(1)
-                        .orientation(Orientation::Horizontal)
-                        .spacing(8.0)
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .children((
-                            theme::stat_chip(palette, format!("Page {} of {page_count}", page + 1)),
-                            theme::stat_chip(palette, format!("{total_count} addons")),
-                            theme::stat_chip(
-                                palette,
-                                format!("{} installed", self.installed_addon_ids.len()),
-                            ),
-                        )),
-                )),
+            theme::catalog_header(
+                palette,
+                if discover {
+                    "COMMUNITY PICKS"
+                } else {
+                    "YOUR COLLECTION"
+                },
+                if discover {
+                    "Featured Addons"
+                } else {
+                    "My Addons"
+                },
+            ),
         )];
         if let Some(error) = &self.directory_error {
             children.push(KeyedView::new(
@@ -1180,24 +1183,14 @@ impl WinWam {
             ));
         }
         children.push(KeyedView::new(
-            "toolbar",
-            Grid::new()
-                .columns([GridLength::STAR, GridLength::Auto])
-                .column_spacing(12.0)
-                .children((
-                    TextBox::new()
-                        .text(surface.query.clone())
-                        .placeholder_text("Search addons...")
-                        .on_text_changed(context.callback(Message::Search)),
-                    ComboBox::new()
-                        .grid_column(1)
-                        .width(160.0)
-                        .items_source(["Name", "Author", "Category"])
-                        .selected_index(self.sort_mode)
-                        .on_selection_changed(context.callback(Message::SelectSort)),
-                )),
+            "search",
+            TextBox::new()
+                .text(surface.query.clone())
+                .placeholder_text("Search addons")
+                .on_text_changed(context.callback(Message::Search)),
         ));
         if !categories.is_empty() {
+            let selected = selected_category.clone();
             let ribbon = categories
                 .iter()
                 .enumerate()
@@ -1206,9 +1199,9 @@ impl WinWam {
                         category.clone(),
                         theme::ribbon_button(
                             palette,
-                            category.clone(),
+                            directory::category_label(category),
                             category_ribbon_icon(category),
-                            selected_category.map(String::as_str) == Some(category.as_str()),
+                            selected.as_deref() == Some(category.as_str()),
                         )
                         .on_click(context.callback(move |_| Message::SelectCategory(Some(index)))),
                     )
@@ -1228,71 +1221,94 @@ impl WinWam {
             ));
         }
 
-        let page_addons = addons
-            .into_iter()
-            .skip(page_start)
-            .take(self.browse_page_size)
-            .map(|addon| {
-                KeyedView::new(
-                    addon.id.clone(),
-                    addon_card(
-                        addon,
-                        palette,
-                        context,
-                        self.installed_addon_ids.contains(&addon.id),
-                        self.expanded_addon_id.as_deref() == Some(addon.id.as_str()),
-                        self.installing_addon_ids.contains(&addon.id),
-                    ),
+        let empty_catalog = items.is_empty();
+        let loading = matches!(self.update_status, UpdateStatus::Checking) && empty_catalog;
+        if loading {
+            children.push(KeyedView::new(
+                "loading",
+                StackPanel::new()
+                    .spacing(12.0)
+                    .horizontal_alignment(HorizontalAlignment::Center)
+                    .children((
+                        ProgressRing::new()
+                            .width(32.0)
+                            .height(32.0)
+                            .is_indeterminate(true)
+                            .is_active(true),
+                        TextBlock::new()
+                            .text("Loading addons")
+                            .foreground(palette.text_muted),
+                    )),
+            ));
+        } else if empty_catalog {
+            let (title, message) = if let Some(error) = &self.directory_error {
+                ("Could not load addons", error.as_str())
+            } else {
+                (
+                    "No addons yet",
+                    if discover {
+                        "The directory for this game version is empty."
+                    } else {
+                        "Install an addon from Discover to start your collection."
+                    },
                 )
-            })
-            .collect::<Vec<_>>();
-        if total_count == 0 {
+            };
+            children.push(KeyedView::new(
+                "empty",
+                theme::empty_state(palette, title, message),
+            ));
+        } else if addons.is_empty() {
             children.push(KeyedView::new(
                 "empty",
                 theme::empty_state(
                     palette,
-                    "No addons match",
-                    "Try another search, category, or game version.",
+                    "No addons found in this view.",
+                    "Try another search or category.",
                 ),
             ));
         } else {
+            let cards = addons
+                .iter()
+                .map(|addon| {
+                    let installed = self.installed_addon_ids.contains(&addon.id);
+                    let managed = self
+                        .installed_addons
+                        .iter()
+                        .find(|item| item.id == addon.id)
+                        .map(|item| item.managed)
+                        .unwrap_or(false);
+                    KeyedView::new(
+                        addon.id.clone(),
+                        addon_card(
+                            addon,
+                            palette,
+                            context,
+                            installed,
+                            managed,
+                            self.expanded_addon_id.as_deref() == Some(addon.id.as_str()),
+                            self.installing_addon_ids.contains(&addon.id),
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>();
             children.push(KeyedView::new(
                 "results",
                 VariableSizedWrapGrid::new()
                     .orientation(Orientation::Horizontal)
-                    .item_width(352.0)
-                    .item_height(if expanded_on_page { 380.0 } else { 212.0 })
-                    .max_width(1800.0)
-                    .horizontal_alignment(HorizontalAlignment::Center)
-                    .keyed_children(page_addons),
+                    .item_width(theme::catalog_card_width())
+                    .item_height(theme::CATALOG_CARD_HEIGHT)
+                    .horizontal_alignment(HorizontalAlignment::Left)
+                    .keyed_children(cards),
             ));
-            children.push(KeyedView::new(
-                "pager",
-                StackPanel::new()
-                    .orientation(Orientation::Horizontal)
-                    .spacing(8.0)
-                    .horizontal_alignment(HorizontalAlignment::Center)
-                    .children((
-                        theme::outline_button(palette, "Previous")
-                            .enabled(page > 0)
-                            .on_click(context.callback(|_| Message::PreviousBrowsePage)),
-                        theme::stat_chip(
-                            palette,
-                            if shown_count == 0 {
-                                "No addons on this page".to_string()
-                            } else {
-                                format!(
-                                    "{}–{} of {total_count}",
-                                    page_start + 1,
-                                    page_start + shown_count
-                                )
-                            },
-                        ),
-                        theme::outline_button(palette, "Next")
-                            .enabled(page + 1 < page_count)
-                            .on_click(context.callback(|_| Message::NextBrowsePage)),
-                    )),
-            ));
+            if let Some(addon) = addons
+                .iter()
+                .find(|addon| self.expanded_addon_id.as_deref() == Some(addon.id.as_str()))
+            {
+                children.push(KeyedView::new(
+                    "details",
+                    addon_inline_details(addon, palette),
+                ));
+            }
         }
 
         ScrollViewer::new()
@@ -1305,54 +1321,12 @@ impl WinWam {
             )
     }
 
-    fn installed_view(&self, context: &ViewContext<Self>) -> View {
-        let palette = theme::palette(self.selected_flavor);
-        let mut children = vec![KeyedView::new(
-            "header",
-            theme::page_header(
-                palette,
-                "My Addons",
-                "Manage addons discovered from .toc files and WinWam markers",
-            ),
-        )];
-        if self.installed_addons.is_empty() {
-            children.push(KeyedView::new(
-                "empty",
-                theme::empty_state(
-                    palette,
-                    "Your addon folder is empty",
-                    "Browse the directory and choose Install to add your first addon.",
-                ),
-            ));
-        } else {
-            children.extend(self.installed_addons.iter().map(|installed| {
-                if let Some(addon) = self
-                    .source_list
-                    .addons
-                    .iter()
-                    .find(|addon| addon.id == installed.id)
-                {
-                    KeyedView::new(
-                        installed.id.clone(),
-                        installed_addon_row(addon, installed, palette, context),
-                    )
-                } else {
-                    KeyedView::new(
-                        installed.id.clone(),
-                        discovered_addon_row(installed, palette, context),
-                    )
-                }
-            }));
-        }
+    fn browse_view(&self, context: &ViewContext<Self>) -> View {
+        self.catalog_surface_view(context, true)
+    }
 
-        ScrollViewer::new()
-            .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
-            .content(
-                StackPanel::new()
-                    .spacing(16.0)
-                    .margin(Thickness::uniform(theme::PAGE_MARGIN))
-                    .keyed_children(children),
-            )
+    fn installed_view(&self, context: &ViewContext<Self>) -> View {
+        self.catalog_surface_view(context, false)
     }
 
     fn loadouts_view(&self, context: &ViewContext<Self>) -> View {
@@ -1787,95 +1761,154 @@ fn addon_card(
     palette: &theme::Palette,
     context: &ViewContext<WinWam>,
     installed: bool,
+    managed: bool,
     expanded: bool,
     installing: bool,
 ) -> View {
-    let details_button =
-        theme::outline_button(palette, if expanded { "×  Close" } else { "Details" }).on_click({
-            let id = addon.id.clone();
-            context.callback(move |_| Message::ToggleAddonDetails(id.clone()))
-        });
-    let mut action_views = vec![KeyedView::new("details", details_button)];
-    if installing {
-        action_views.push(KeyedView::new(
-            "installing",
-            StackPanel::new()
-                .orientation(Orientation::Horizontal)
-                .spacing(8.0)
-                .vertical_alignment(VerticalAlignment::Center)
-                .children((
-                    ProgressRing::new()
-                        .width(20.0)
-                        .height(20.0)
-                        .is_indeterminate(true)
-                        .is_active(true),
-                    TextBlock::new()
-                        .text("Installing…")
-                        .foreground(palette.accent),
-                )),
-        ));
+    let overlay: View = if installing {
+        StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(8.0)
+            .horizontal_alignment(HorizontalAlignment::Right)
+            .vertical_alignment(VerticalAlignment::Bottom)
+            .margin(Thickness::uniform(8.0))
+            .children((
+                ProgressRing::new()
+                    .width(18.0)
+                    .height(18.0)
+                    .is_indeterminate(true)
+                    .is_active(true),
+                TextBlock::new()
+                    .text("Installing…")
+                    .font_size(theme::META_SIZE)
+                    .foreground(palette.accent),
+            ))
     } else if !installed {
-        action_views.push(KeyedView::new(
-            "install",
-            theme::accent_button(palette, "Install").on_click({
+        theme::accent_button(palette, "Install")
+            .height(32.0)
+            .horizontal_alignment(HorizontalAlignment::Right)
+            .vertical_alignment(VerticalAlignment::Bottom)
+            .on_click({
                 let id = addon.id.clone();
                 context.callback(move |_| Message::InstallAddon(id.clone()))
-            }),
-        ));
-    }
-    let status: View = if installed {
-        theme::installed_badge(palette)
-    } else {
-        Border::new().width(0.0).into()
-    };
-    let details: View = if expanded {
-        StackPanel::new().spacing(10.0).children((
-            TextBlock::new()
-                .text(addon.summary.clone())
-                .font_size(14.0)
-                .text_wrapping(TextWrapping::Wrap)
-                .foreground(palette.text_primary),
-            TextBlock::new()
-                .text(format!(
-                    "Source: {} · {}/{}",
-                    addon.source_kind, addon.owner, addon.repo
-                ))
-                .font_size(12.0)
-                .foreground(palette.text_muted),
-            TextBlock::new()
-                .text(format!("Author: {}", addon.author))
-                .font_size(12.0)
-                .foreground(palette.text_muted),
-            TextBlock::new()
-                .text(format!(
-                    "Version: {}",
-                    addon.version.as_deref().unwrap_or("unspecified")
-                ))
-                .font_size(12.0)
-                .foreground(palette.text_muted),
-            TextBlock::new()
-                .text(if addon.tags.is_empty() {
-                    "Tags: none".to_string()
-                } else {
-                    format!("Tags: {}", addon.tags.join(", "))
-                })
-                .font_size(12.0)
-                .text_wrapping(TextWrapping::Wrap)
-                .foreground(palette.text_muted),
-        ))
-    } else {
-        TextBlock::new()
-            .text(addon.summary.clone())
-            .font_size(13.0)
-            .text_wrapping(TextWrapping::Wrap)
-            .max_lines(2)
-            .foreground(palette.text_muted)
+            })
             .into()
+    } else {
+        let remove = theme::outline_button(palette, "Remove")
+            .height(32.0)
+            .horizontal_alignment(HorizontalAlignment::Right)
+            .vertical_alignment(VerticalAlignment::Bottom)
+            .enabled(managed)
+            .automation_name(if managed {
+                format!("Remove {}", addon.name)
+            } else {
+                "WinWAM did not install this addon, so it will not remove it.".to_string()
+            });
+        if managed {
+            remove
+                .on_click({
+                    let id = addon.id.clone();
+                    context.callback(move |_| Message::UninstallAddon(id.clone()))
+                })
+                .into()
+        } else {
+            remove.into()
+        }
+    };
+    let downloads: View = match addon.download_count {
+        Some(count) => TextBlock::new()
+            .text(directory::compact_count(count))
+            .font_size(theme::META_SIZE)
+            .foreground(palette.text_muted)
+            .into(),
+        None => Border::new().height(0.0).into(),
+    };
+    let source: View = match directory::resolved_source_url(addon) {
+        Some(url) => Button::new()
+            .style(ButtonStyle::Default)
+            .width(24.0)
+            .height(24.0)
+            .automation_name(format!("Open {} source project", addon.name))
+            .on_click(context.callback(move |_| Message::OpenHttpsUrl(url.clone())))
+            .content(
+                Image::new()
+                    .source_data(EncodedImage::from_static(include_bytes!(
+                        "../assets/generated/source-mark.png"
+                    )))
+                    .width(15.0)
+                    .height(15.0)
+                    .stretch(Stretch::Uniform),
+            ),
+        None => Border::new().width(0.0).height(0.0).into(),
     };
     Border::new()
-        .width(340.0)
-        .height(if expanded { 360.0 } else { 200.0 })
-        .margin(Thickness::uniform(6.0))
+        .width(theme::CATALOG_CARD_WIDTH)
+        .height(theme::CATALOG_CARD_HEIGHT)
+        .background(palette.card_bg)
+        .border_brush(palette.stroke)
+        .border_thickness(1.0)
+        .corner_radius(theme::CARD_RADIUS)
+        .content(
+            Grid::new()
+                .rows([
+                    GridLength::Pixel(theme::CATALOG_ART_HEIGHT),
+                    GridLength::STAR,
+                ])
+                .children((
+                    Border::new()
+                        .background(palette.tile_bg)
+                        .content(Grid::new().children((
+                            theme::addon_icon_tile_at(palette, &addon.name, 58.0),
+                            if installed {
+                                theme::installed_badge(palette)
+                            } else {
+                                Border::new().width(0.0).into()
+                            },
+                            overlay,
+                        ))),
+                    StackPanel::new()
+                        .grid_row(1)
+                        .spacing(4.0)
+                        .margin(Thickness::xy(12.0, 10.0))
+                        .children((
+                            TextBlock::new()
+                                .text(addon.name.clone())
+                                .font_size(theme::CARD_TITLE_SIZE)
+                                .font_weight(FontWeight::SEMI_BOLD)
+                                .foreground(palette.text_primary),
+                            TextBlock::new()
+                                .text(format!("by {}", addon.author))
+                                .font_size(theme::META_SIZE)
+                                .foreground(palette.text_muted),
+                            downloads,
+                            StackPanel::new()
+                                .orientation(Orientation::Horizontal)
+                                .spacing(8.0)
+                                .children((
+                                    source,
+                                    theme::outline_button(
+                                        palette,
+                                        if expanded {
+                                            "Hide details"
+                                        } else {
+                                            "View details"
+                                        },
+                                    )
+                                    .height(28.0)
+                                    .on_click({
+                                        let id = addon.id.clone();
+                                        context.callback(move |_| {
+                                            Message::ToggleAddonDetails(id.clone())
+                                        })
+                                    }),
+                                )),
+                        )),
+                )),
+        )
+}
+
+fn addon_inline_details(addon: &Addon, palette: &theme::Palette) -> View {
+    Border::new()
         .background(palette.card_bg)
         .border_brush(palette.stroke)
         .border_thickness(1.0)
@@ -1883,173 +1916,39 @@ fn addon_card(
         .padding(Thickness::uniform(14.0))
         .content(
             Grid::new()
-                .rows([GridLength::Auto, GridLength::STAR, GridLength::Auto])
-                .children((
-                    Grid::new()
-                        .columns([GridLength::Auto, GridLength::STAR, GridLength::Auto])
-                        .children((
-                            theme::addon_icon_tile(palette, &addon.name),
-                            StackPanel::new()
-                                .grid_column(1)
-                                .spacing(2.0)
-                                .margin(Thickness::new(10.0, 0.0, 10.0, 0.0))
-                                .vertical_alignment(VerticalAlignment::Center)
-                                .children((
-                                    TextBlock::new()
-                                        .text(addon.name.clone())
-                                        .font_size(theme::ROW_NAME_SIZE)
-                                        .font_weight(FontWeight::SEMI_BOLD)
-                                        .foreground(palette.text_primary),
-                                    TextBlock::new()
-                                        .text(format!("by {}", addon.author))
-                                        .font_size(12.0)
-                                        .foreground(palette.text_muted),
-                                )),
-                            Border::new()
-                                .grid_column(2)
-                                .vertical_alignment(VerticalAlignment::Top)
-                                .content(status),
-                        )),
-                    Border::new()
-                        .grid_row(1)
-                        .margin(Thickness::new(0.0, 10.0, 0.0, 10.0))
-                        .content(details),
-                    Grid::new()
-                        .grid_row(2)
-                        .columns([GridLength::STAR, GridLength::Auto])
-                        .children((
-                            theme::category_chip(palette, &addon.category),
-                            StackPanel::new()
-                                .grid_column(1)
-                                .orientation(Orientation::Horizontal)
-                                .spacing(8.0)
-                                .horizontal_alignment(HorizontalAlignment::Right)
-                                .keyed_children(action_views),
-                        )),
-                )),
-        )
-}
-
-fn installed_addon_row(
-    addon: &Addon,
-    installed: &scan::InstalledAddon,
-    palette: &theme::Palette,
-    context: &ViewContext<WinWam>,
-) -> View {
-    let version = installed
-        .version
-        .as_deref()
-        .or(addon.version.as_deref())
-        .unwrap_or("unspecified");
-    Border::new()
-        .horizontal_alignment(HorizontalAlignment::Stretch)
-        .background(palette.card_bg)
-        .border_brush(palette.stroke)
-        .border_thickness(1.0)
-        .corner_radius(theme::CARD_RADIUS)
-        .padding(Thickness::xy(12.0, 10.0))
-        .margin(Thickness::new(0.0, 0.0, 0.0, 8.0))
-        .content(
-            Grid::new()
-                .columns([
-                    GridLength::Auto,
-                    GridLength::STAR,
-                    GridLength::Auto,
-                    GridLength::Auto,
-                ])
+                .columns([GridLength::Auto, GridLength::STAR])
+                .column_spacing(12.0)
                 .children((
                     theme::addon_icon_tile(palette, &addon.name),
-                    StackPanel::new()
-                        .grid_column(1)
-                        .spacing(2.0)
-                        .margin(Thickness::new(12.0, 0.0, 12.0, 0.0))
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .children((
-                            TextBlock::new()
-                                .text(addon.name.clone())
-                                .font_size(theme::ROW_NAME_SIZE)
-                                .font_weight(FontWeight::SEMI_BOLD)
-                                .foreground(palette.text_primary),
-                            TextBlock::new()
-                                .text(format!("by {} · {version}", addon.author))
-                                .font_size(13.0)
-                                .foreground(palette.text_muted),
-                        )),
-                    Border::new()
-                        .grid_column(2)
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .content(theme::category_chip(palette, &addon.category)),
-                    theme::outline_button(palette, "Uninstall")
-                        .grid_column(3)
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .enabled(installed.managed)
-                        .on_click({
-                            let id = addon.id.clone();
-                            context.callback(move |_| Message::UninstallAddon(id.clone()))
-                        }),
-                )),
-        )
-}
-
-fn discovered_addon_row(
-    installed: &scan::InstalledAddon,
-    palette: &theme::Palette,
-    context: &ViewContext<WinWam>,
-) -> View {
-    let version = installed.version.as_deref().unwrap_or("unspecified");
-    Border::new()
-        .horizontal_alignment(HorizontalAlignment::Stretch)
-        .background(palette.card_bg)
-        .border_brush(palette.stroke)
-        .border_thickness(1.0)
-        .corner_radius(theme::CARD_RADIUS)
-        .padding(Thickness::xy(12.0, 10.0))
-        .margin(Thickness::new(0.0, 0.0, 0.0, 8.0))
-        .content(
-            Grid::new()
-                .columns([
-                    GridLength::Auto,
-                    GridLength::STAR,
-                    GridLength::Auto,
-                    GridLength::Auto,
-                ])
-                .children((
-                    theme::addon_icon_tile(palette, &installed.title),
-                    StackPanel::new()
-                        .grid_column(1)
-                        .spacing(2.0)
-                        .margin(Thickness::new(12.0, 0.0, 12.0, 0.0))
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .children((
-                            TextBlock::new()
-                                .text(installed.title.clone())
-                                .font_size(theme::ROW_NAME_SIZE)
-                                .font_weight(FontWeight::SEMI_BOLD)
-                                .foreground(palette.text_primary),
-                            TextBlock::new()
-                                .text(format!("{} · {version}", installed.folder))
-                                .font_size(13.0)
-                                .foreground(palette.text_muted),
-                        )),
-                    Border::new()
-                        .grid_column(2)
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .content(theme::category_chip(
+                    StackPanel::new().grid_column(1).spacing(8.0).children((
+                        TextBlock::new()
+                            .text(addon.name.clone())
+                            .font_size(theme::ROW_NAME_SIZE)
+                            .font_weight(FontWeight::SEMI_BOLD)
+                            .foreground(palette.text_primary),
+                        theme::category_chip(palette, directory::category_label(&addon.category)),
+                        theme::stat_chip(
                             palette,
-                            if installed.managed {
-                                "Managed"
-                            } else {
-                                "Local"
-                            },
-                        )),
-                    theme::outline_button(palette, "Uninstall")
-                        .grid_column(3)
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .enabled(installed.managed)
-                        .on_click({
-                            let id = installed.id.clone();
-                            context.callback(move |_| Message::UninstallAddon(id.clone()))
-                        }),
+                            addon
+                                .download_count
+                                .map(directory::compact_count)
+                                .unwrap_or_else(|| "Downloads unavailable".to_string()),
+                        ),
+                        TextBlock::new()
+                            .text(
+                                addon
+                                    .description
+                                    .clone()
+                                    .unwrap_or_else(|| addon.summary.clone()),
+                            )
+                            .font_size(14.0)
+                            .text_wrapping(TextWrapping::Wrap)
+                            .foreground(palette.text_primary),
+                        TextBlock::new()
+                            .text(format!("by {}", addon.author))
+                            .font_size(theme::META_SIZE)
+                            .foreground(palette.text_muted),
+                    )),
                 )),
         )
 }
@@ -2078,7 +1977,7 @@ fn message_telemetry(message: &Message) -> String {
         Message::Search(query) => format!("Search changed · {} characters", query.len()),
         Message::SelectFlavor(index) => format!("SKU selection changed · {index:?}"),
         Message::SelectCategory(index) => format!("Category selection changed · {index:?}"),
-        Message::SelectSort(index) => format!("Sort selection changed · {index:?}"),
+        Message::OpenHttpsUrl(url) => format!("Open source URL · {url}"),
         Message::SourceUrlChanged(_) => "Directory source edited".to_string(),
         Message::WowFolderChanged(_) => "WoW folder edited".to_string(),
         Message::BrowseWowFolder => "WoW folder picker opened".to_string(),
@@ -2089,9 +1988,6 @@ fn message_telemetry(message: &Message) -> String {
         Message::InstallFinished(id, Err(error)) => format!("Install failed · {id} · {error}"),
         Message::UninstallAddon(id) => format!("Uninstall requested · {id}"),
         Message::ToggleAddonDetails(id) => format!("Addon details toggled · {id}"),
-        Message::PreviousBrowsePage => "Browse page → previous".to_string(),
-        Message::NextBrowsePage => "Browse page → next".to_string(),
-        Message::BrowsePageSizeChanged(size) => format!("Responsive page size · {size}"),
         Message::ToggleHood => "Hood toggled".to_string(),
         Message::SelectTelemetryLevel(level) => format!("Telemetry selection · {level:?}"),
         Message::NewLoadout => "Loadout creation started".to_string(),
@@ -2136,30 +2032,15 @@ fn category_ribbon_icon(category: &str) -> Option<&'static [u8]> {
     }
 }
 
-fn browse_page_size(size: WindowSize) -> usize {
-    let content_width =
-        (size.width - theme::GAME_PANEL_WIDTH - theme::PAGE_MARGIN * 2.0).clamp(340.0, 1800.0);
-    let content_height = (size.height - 270.0).max(200.0);
-    let columns = (content_width / 340.0).floor().max(1.0) as usize;
-    let rows = (content_height / 200.0).floor().max(1.0) as usize;
-    (columns * rows).clamp(6, 20)
-}
-
 fn matches_query(addon: &Addon, query: &str) -> bool {
     query.is_empty()
         || addon.name.to_lowercase().contains(query)
         || addon.author.to_lowercase().contains(query)
         || addon.category.to_lowercase().contains(query)
-        || addon.tags.iter().any(|tag| tag.contains(query))
-}
-
-fn unique_categories(addons: &[Addon]) -> Vec<String> {
-    addons
-        .iter()
-        .map(|addon| addon.category.clone())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+        || addon
+            .tags
+            .iter()
+            .any(|tag| tag.to_lowercase().contains(query))
 }
 
 fn initial_page(missing: bool, last: Option<&str>) -> Page {
@@ -2394,18 +2275,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn browse_page_size_clamps_and_scales() {
-        let compact = browse_page_size(WindowSize {
-            width: 1400.0,
-            height: 900.0,
-        });
-        assert_eq!(compact, 9);
-        assert!((6..=20).contains(&compact));
-        let four_k = browse_page_size(WindowSize {
-            width: 3840.0,
-            height: 2160.0,
-        });
-        assert_eq!(four_k, 20);
+    fn catalog_card_width_is_three_column_reference() {
+        assert_eq!(theme::catalog_card_width(), 362.0);
+        assert_eq!(theme::CATALOG_CARD_WIDTH, 362.0);
+        assert!(!directory::CATEGORY_ORDER.contains(&"All"));
+        assert_eq!(directory::compact_count(1500), "1.5k");
+        assert_eq!(directory::compact_count(12_300), "12.3k");
     }
 
     #[test]
@@ -2543,6 +2418,7 @@ mod tests {
         assert!(matches_query(&addon, "bag"));
         assert!(matches_query(&addon, "northwind"));
         assert!(matches_query(&addon, "inventory"));
+        assert!(matches_query(&addon, "bags"));
         assert!(!matches_query(&addon, "raid"));
     }
 }

@@ -275,6 +275,98 @@ fn https_host(url: &str) -> Option<String> {
     }
 }
 
+pub const CATEGORY_ORDER: &[&str] = &[
+    "Combat",
+    "Raiding",
+    "Dungeons",
+    "Interface",
+    "Bags",
+    "Economy",
+    "Collections",
+    "Quests",
+    "Nameplates",
+    "ActionBars",
+    "UnitFrames",
+    "QualityOfLife",
+    "Roleplay",
+    "Libraries",
+    "Development",
+];
+
+pub fn category_label(category: &str) -> &'static str {
+    match category {
+        "QualityOfLife" => "Quality of Life",
+        "ActionBars" => "Action Bars",
+        "UnitFrames" => "Unit Frames",
+        "Combat" => "Combat",
+        "Raiding" => "Raiding",
+        "Dungeons" => "Dungeons",
+        "Interface" => "Interface",
+        "Bags" => "Bags",
+        "Economy" => "Economy",
+        "Collections" => "Collections",
+        "Quests" => "Quests",
+        "Nameplates" => "Nameplates",
+        "Roleplay" => "Roleplay",
+        "Libraries" => "Libraries",
+        "Development" => "Development",
+        _ => "Unknown",
+    }
+}
+
+pub fn visible_categories(addons: &[Addon]) -> Vec<String> {
+    let present: std::collections::BTreeSet<&str> =
+        addons.iter().map(|addon| addon.category.as_str()).collect();
+    CATEGORY_ORDER
+        .iter()
+        .filter(|category| present.contains(*category))
+        .map(|category| (*category).to_string())
+        .collect()
+}
+
+pub fn compact_count(n: u64) -> String {
+    if n < 1000 {
+        n.to_string()
+    } else if n < 1_000_000 {
+        format!("{:.1}k", n as f64 / 1000.0)
+    } else {
+        format!("{:.1}m", n as f64 / 1_000_000.0)
+    }
+}
+
+pub fn resolved_source_url(addon: &Addon) -> Option<String> {
+    if let Some(url) = addon.source_url.as_ref()
+        && let Ok(url) = validated_https_url(url)
+    {
+        return Some(url);
+    }
+    if addon.owner.is_empty() || addon.repo.is_empty() || addon.host.is_empty() {
+        return None;
+    }
+    let constructed = format!(
+        "https://{}/{}/{}",
+        addon.host.trim(),
+        addon.owner.trim(),
+        addon.repo.trim()
+    );
+    url_allowed(&constructed, &addon.host).then_some(constructed)
+}
+
+pub fn validated_https_url(url: &str) -> Result<String, String> {
+    let url = url.trim();
+    let host = https_host(url).ok_or_else(|| "URL must use https".to_string())?;
+    if URL_HOST_ALLOWLIST.iter().any(|allowed| host == *allowed) {
+        Ok(url.to_string())
+    } else {
+        Err(format!("blocked host {host}"))
+    }
+}
+
+pub fn open_https_url(url: &str) -> Result<(), String> {
+    let url = validated_https_url(url)?;
+    open::that(&url).map_err(|error| error.to_string())
+}
+
 pub fn cache_dir() -> PathBuf {
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         return PathBuf::from(local).join("WinWam").join("cache");
@@ -544,5 +636,65 @@ mod tests {
         assert_eq!(loaded.schema_version, "1.0");
         assert_eq!(loaded.addons[0].id, "arcane-alerts");
         fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn category_order_has_no_all_and_uses_schema_sequence() {
+        assert!(!CATEGORY_ORDER.contains(&"All"));
+        assert_eq!(CATEGORY_ORDER[0], "Combat");
+        assert_eq!(CATEGORY_ORDER[4], "Bags");
+        assert_eq!(CATEGORY_ORDER[11], "QualityOfLife");
+        assert_eq!(category_label("QualityOfLife"), "Quality of Life");
+        assert_eq!(category_label("ActionBars"), "Action Bars");
+        assert_eq!(category_label("UnitFrames"), "Unit Frames");
+        assert_eq!(category_label("Bags"), "Bags");
+        let addons = vec![
+            Addon {
+                category: "Bags".into(),
+                ..Addon::default()
+            },
+            Addon {
+                category: "Combat".into(),
+                ..Addon::default()
+            },
+            Addon {
+                category: "Mystery".into(),
+                ..Addon::default()
+            },
+        ];
+        assert_eq!(visible_categories(&addons), vec!["Combat", "Bags"]);
+    }
+
+    #[test]
+    fn compact_count_formats_thousands() {
+        assert_eq!(compact_count(1500), "1.5k");
+        assert_eq!(compact_count(12_300), "12.3k");
+        assert_eq!(compact_count(42), "42");
+    }
+
+    #[test]
+    fn resolved_source_url_uses_https_source_or_host() {
+        let mut addon = Addon {
+            host: "github.com".into(),
+            owner: "winwam-test".into(),
+            repo: "demo".into(),
+            ..Addon::default()
+        };
+        assert_eq!(
+            resolved_source_url(&addon).as_deref(),
+            Some("https://github.com/winwam-test/demo")
+        );
+        addon.source_url = Some("https://gitlab.com/winwam-test/demo".into());
+        assert_eq!(
+            resolved_source_url(&addon).as_deref(),
+            Some("https://gitlab.com/winwam-test/demo")
+        );
+        addon.source_url = Some("http://github.com/winwam-test/demo".into());
+        assert_eq!(
+            resolved_source_url(&addon).as_deref(),
+            Some("https://github.com/winwam-test/demo")
+        );
+        assert!(validated_https_url("javascript:alert(1)").is_err());
+        assert!(validated_https_url("https://evil.example").is_err());
     }
 }

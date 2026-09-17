@@ -28,8 +28,10 @@ pub const PAGE_MARGIN: f64 = 24.0;
 #[allow(dead_code)]
 pub const RIBBON_HEIGHT: f64 = 82.0;
 pub const CARD_RADIUS: f64 = 5.0;
-#[allow(dead_code)]
 pub const CARD_GAP: f64 = 12.0;
+pub const CATALOG_CARD_WIDTH: f64 = 362.0;
+pub const CATALOG_CARD_HEIGHT: f64 = 196.0;
+pub const CATALOG_ART_HEIGHT: f64 = 82.0;
 pub const CONTROL_HEIGHT: f64 = 42.0;
 pub const SETTINGS_BUTTON_SIZE: f64 = 44.0;
 #[allow(dead_code)]
@@ -46,7 +48,6 @@ pub const TOPNAV_WEIGHT: FontWeight = FontWeight::BOLD;
 pub const EYEBROW_SIZE: f64 = 11.0;
 #[allow(dead_code)]
 pub const SECTION_TITLE_SIZE: f64 = 22.0;
-#[allow(dead_code)]
 pub const CARD_TITLE_SIZE: f64 = 15.0;
 pub const META_SIZE: f64 = 12.0;
 #[allow(dead_code)]
@@ -401,6 +402,25 @@ pub fn page_header(palette: &Palette, title: &str, subtitle: &str) -> View {
     ))
 }
 
+pub fn catalog_header(palette: &Palette, eyebrow: &str, title: &str) -> View {
+    StackPanel::new().spacing(5.0).children((
+        TextBlock::new()
+            .text(eyebrow.to_string())
+            .font_size(EYEBROW_SIZE)
+            .font_weight(FontWeight::EXTRA_BOLD)
+            .foreground(palette.accent),
+        TextBlock::new()
+            .text(title.to_string())
+            .font_size(TITLE_SIZE)
+            .font_weight(FontWeight::SEMI_BOLD)
+            .foreground(palette.text_primary),
+    ))
+}
+
+pub fn catalog_card_width() -> f64 {
+    ((REFERENCE_CLIENT_WIDTH - GAME_PANEL_WIDTH - PAGE_MARGIN * 2.0 - CARD_GAP * 2.0) / 3.0).floor()
+}
+
 pub fn empty_state(palette: &Palette, title: &str, message: &str) -> View {
     Border::new()
         .background(palette.card_bg)
@@ -457,6 +477,10 @@ pub fn stat_chip(palette: &Palette, text: impl Into<String>) -> View {
 }
 
 pub fn addon_icon_tile(palette: &Palette, name: &str) -> View {
+    addon_icon_tile_at(palette, name, 48.0)
+}
+
+pub fn addon_icon_tile_at(palette: &Palette, name: &str, size: f64) -> View {
     let initial: String = name
         .split_whitespace()
         .filter_map(|word| word.chars().next())
@@ -468,8 +492,8 @@ pub fn addon_icon_tile(palette: &Palette, name: &str) -> View {
         initial.to_uppercase()
     };
     Border::new()
-        .width(48.0)
-        .height(48.0)
+        .width(size)
+        .height(size)
         .corner_radius(CARD_RADIUS)
         .background(palette.tile_bg)
         .content(
