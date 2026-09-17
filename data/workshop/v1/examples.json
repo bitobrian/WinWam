@@ -1,0 +1,63 @@
+{
+  "id": "examples",
+  "navLabel": "Hello World",
+  "eyebrow": "LESSON 3 · HELLO WORLD",
+  "title": "Small wins you can see in-game.",
+  "body": "Each example teaches one core concept. Copy it into MyFirstAddon.lua, type /reload in-game, and try it out.",
+  "reloadTitle": "Your fastest feedback loop",
+  "reloadBody": "Save the file, return to WoW, and type /reload. If something fails, the error message is your best starting point for debugging.",
+  "samples": [
+    {
+      "id": "login",
+      "tab": "Login greeting",
+      "concept": "EVENTS + CHAT",
+      "title": "Say hello when you log in",
+      "description": "Create a frame, listen for the login event, and print a friendly message to the chat window.",
+      "challenge": "Include your character's name using UnitName(\"player\").",
+      "fileName": "MyFirstAddon.lua",
+      "code": "local frame = CreateFrame(\"Frame\")\nframe:RegisterEvent(\"PLAYER_LOGIN\")\n\nframe:SetScript(\"OnEvent\", function()\n  print(\"Hello, Azeroth!\")\nend)",
+      "compatibleSkus": [
+        "retail",
+        "mop-classic",
+        "classic",
+        "bc-anniversary",
+        "forever"
+      ],
+      "skuNote": "PLAYER_LOGIN is available on every current SKU."
+    },
+    {
+      "id": "slash",
+      "tab": "Slash command",
+      "concept": "SLASH COMMANDS",
+      "title": "Make your first chat command",
+      "description": "Register /hello and respond whenever the player types it into chat.",
+      "challenge": "Accept a name after the command, such as /hello Thrall.",
+      "fileName": "MyFirstAddon.lua",
+      "code": "SLASH_MYFIRSTADDON1 = \"/hello\"\n\nSlashCmdList.MYFIRSTADDON = function(message)\n  if message == \"\" then\n    print(\"Hello from my addon!\")\n  else\n    print(\"Hello, \" .. message .. \"!\")\n  end\nend",
+      "compatibleSkus": [
+        "retail",
+        "mop-classic",
+        "classic",
+        "bc-anniversary",
+        "forever"
+      ],
+      "skuNote": "SlashCmdList registration works the same way on every current SKU."
+    },
+    {
+      "id": "button",
+      "tab": "Clickable button",
+      "concept": "FRAMES + SCRIPTS",
+      "title": "Put a button on the screen",
+      "description": "Create a UI button, position it in the center, and react when it is clicked.",
+      "challenge": "Make the button draggable and remember its position between sessions.",
+      "fileName": "MyFirstAddon.lua",
+      "code": "local button = CreateFrame(\"Button\", nil, UIParent,\n  \"UIPanelButtonTemplate\")\nbutton:SetSize(140, 32)\nbutton:SetPoint(\"CENTER\")\nbutton:SetText(\"Say hello\")\n\nbutton:SetScript(\"OnClick\", function()\n  print(\"You clicked it!\")\nend)",
+      "compatibleSkus": [
+        "retail",
+        "mop-classic",
+        "forever"
+      ],
+      "skuNote": "UIPanelButtonTemplate metrics and default fonts differ on Classic Era and Burning Crusade Anniversary."
+    }
+  ]
+}

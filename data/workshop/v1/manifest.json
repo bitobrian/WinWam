@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1",
+  "skuInterface": {
+    "retail": "120000",
+    "mop-classic": "50500",
+    "classic": "11507",
+    "bc-anniversary": "20505",
+    "forever": "120000"
+  },
+  "aiAssistance": {
+    "title": "Using AI assistance",
+    "body": "Share the target game version, relevant API documentation, and exact errors. Ask for small explained changes, review the code, and test each step in-game. Never share account or personal information."
+  },
+  "screens": [
+    "overview",
+    "anatomy",
+    "apis",
+    "examples"
+  ]
+}

@@ -46,11 +46,9 @@ pub const ROW_NAME_SIZE: f64 = 16.0;
 pub const BRAND_SIZE: f64 = 20.0;
 pub const TOPNAV_WEIGHT: FontWeight = FontWeight::BOLD;
 pub const EYEBROW_SIZE: f64 = 11.0;
-#[allow(dead_code)]
 pub const SECTION_TITLE_SIZE: f64 = 22.0;
 pub const CARD_TITLE_SIZE: f64 = 15.0;
 pub const META_SIZE: f64 = 12.0;
-#[allow(dead_code)]
 pub const CODE_SIZE: f64 = 12.0;
 pub const STATUS_OK: Color = Color::rgb(0x7B, 0xD4, 0x00);
 pub const OVERLAY: Color = Color::argb(0xD9, 0x05, 0x08, 0x0B);

@@ -14,9 +14,11 @@ mod logging;
 mod persist;
 mod scan;
 mod theme;
+mod workshop;
 
 use directory::{Addon, AddonSourceList, empty_source_list, load_source_list};
 use loadout::{Loadout, LoadoutDraft, LoadoutPrompt};
+use workshop::Screen as WorkshopScreen;
 
 #[cfg(debug_assertions)]
 const LOCAL_TEST_ROOT: &str = "local-test";
@@ -66,12 +68,6 @@ enum Page {
     Settings,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WorkshopScreen {
-    Overview,
-    Anatomy,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum UpdateStatus {
     Idle,
@@ -100,6 +96,11 @@ enum Message {
     UpdateAll,
     DirectoryRefreshFinished(usize, Result<AddonSourceList, String>),
     ShowWorkshopScreen(WorkshopScreen),
+    SelectWorkshopFile(String),
+    SelectWorkshopExample(String),
+    CopyWorkshopCode,
+    OpenLessonUrl(String),
+    WorkshopHostsProbed(Vec<(String, bool)>),
     SelectFlavor(Option<usize>),
     SelectCategory(Option<usize>),
     OpenHttpsUrl(String),
@@ -163,6 +164,9 @@ struct WinWam {
     toast: Option<String>,
     update_status: UpdateStatus,
     workshop_screen: WorkshopScreen,
+    workshop_file: String,
+    workshop_example: String,
+    workshop_hosts: BTreeMap<String, bool>,
     discover_surfaces: [CatalogSurfaceState; 5],
     installed_surfaces: [CatalogSurfaceState; 5],
 }
@@ -247,6 +251,9 @@ impl Component for WinWam {
             toast: None,
             update_status: UpdateStatus::Idle,
             workshop_screen: WorkshopScreen::Overview,
+            workshop_file: "toc".to_string(),
+            workshop_example: "login".to_string(),
+            workshop_hosts: BTreeMap::new(),
             discover_surfaces: std::array::from_fn(|_| CatalogSurfaceState::default()),
             installed_surfaces: std::array::from_fn(|_| CatalogSurfaceState::default()),
         };
@@ -442,7 +449,49 @@ impl Component for WinWam {
                     self.expanded_addon_id = None;
                 }
             }
-            Message::ShowWorkshopScreen(screen) => self.workshop_screen = screen,
+            Message::ShowWorkshopScreen(screen) => {
+                self.workshop_screen = screen;
+                if screen == WorkshopScreen::Apis {
+                    self.probe_workshop_hosts(context);
+                }
+            }
+            Message::SelectWorkshopFile(id) => self.workshop_file = id,
+            Message::SelectWorkshopExample(id) => self.workshop_example = id,
+            Message::CopyWorkshopCode => {
+                let slug = self.current_flavor_slug();
+                let label = GAME_FLAVORS[self.selected_flavor].label;
+                let sample =
+                    workshop::sample(&workshop::content().examples, &self.workshop_example);
+                let code = workshop::apply_placeholders(&sample.code, slug, label);
+                self.toast =
+                    Some(workshop::format_copy_toast(workshop::copy_code(&code)).to_string());
+            }
+            Message::OpenLessonUrl(url) => match workshop::validated_lesson_url(&url) {
+                Ok(url) => {
+                    let host = workshop::https_host(&url).unwrap_or_else(|| "site".to_string());
+                    let online = self
+                        .workshop_hosts
+                        .get(&host)
+                        .copied()
+                        .unwrap_or_else(|| workshop::host_reachable(&host));
+                    self.workshop_hosts.insert(host.clone(), online);
+                    if !online {
+                        self.toast = Some(workshop::offline_link_message(&host));
+                        return;
+                    }
+                    self.toast = Some(format!("Opening {host}"));
+                    if let Err(error) = directory::open_https_url(&url) {
+                        logging::error(&format!("Could not open {url}: {error}"));
+                        self.toast = Some(format!("Could not open {host}"));
+                    }
+                }
+                Err(error) => logging::error(&format!("Blocked lesson URL {url}: {error}")),
+            },
+            Message::WorkshopHostsProbed(rows) => {
+                for (host, online) in rows {
+                    self.workshop_hosts.insert(host, online);
+                }
+            }
             Message::SelectFlavor(Some(index)) if index < GAME_FLAVORS.len() => {
                 if index == self.selected_flavor
                     || self.fs_busy
@@ -910,80 +959,698 @@ impl WinWam {
             )
     }
 
+    fn probe_workshop_hosts(&self, context: &ComponentContext<Self>) {
+        if !self.workshop_hosts.is_empty() {
+            return;
+        }
+        let hosts = workshop::lesson_hosts();
+        context.spawn_background(move |_| {
+            let rows = hosts
+                .into_iter()
+                .map(|host| {
+                    let online = workshop::host_reachable(&host);
+                    (host, online)
+                })
+                .collect();
+            Message::WorkshopHostsProbed(rows)
+        });
+    }
+
     fn workshop_view(&self, context: &ViewContext<Self>) -> View {
         let palette = theme::palette(self.selected_flavor);
-        let lesson: View = match self.workshop_screen {
-            WorkshopScreen::Overview => StackPanel::new()
-                .spacing(12.0)
-                .children((
-                    TextBlock::new()
-                        .text("START BUILDING")
-                        .font_size(theme::EYEBROW_SIZE)
-                        .font_weight(FontWeight::EXTRA_BOLD)
-                        .foreground(palette.accent),
-                    TextBlock::new()
-                        .text("Create your first addon.")
-                        .font_size(36.0)
-                        .font_weight(FontWeight::BOLD)
-                        .foreground(palette.text_primary)
-                        .text_wrapping(TextWrapping::Wrap),
-                    TextBlock::new()
-                        .text("Turn an idea into a working World of Warcraft addon. Learn what each file does, build useful features one step at a time, and test every change in-game.")
-                        .font_size(15.0)
-                        .text_wrapping(TextWrapping::Wrap)
-                        .foreground(palette.text_muted),
-                    theme::accent_button(palette, "Start learning")
-                        .height(theme::CONTROL_HEIGHT)
-                        .on_click(context.callback(|_| {
-                            Message::ShowWorkshopScreen(WorkshopScreen::Anatomy)
-                        })),
-                )),
-            WorkshopScreen::Anatomy => StackPanel::new()
-                .spacing(12.0)
-                .children((
-                    TextBlock::new()
-                        .text("Anatomy lesson arrives in a later milestone.")
-                        .font_size(15.0)
-                        .text_wrapping(TextWrapping::Wrap)
-                        .foreground(palette.text_primary),
-                    theme::outline_button(palette, "Back to overview")
-                        .on_click(context.callback(|_| {
-                            Message::ShowWorkshopScreen(WorkshopScreen::Overview)
-                        })),
-                )),
-        };
+        let content = workshop::content();
+        let mut children = vec![
+            KeyedView::new("nav", self.workshop_nav(palette, context, content)),
+            KeyedView::new("ai", self.workshop_ai_banner(palette, content)),
+        ];
+        children.push(KeyedView::new(
+            self.workshop_screen.id(),
+            match self.workshop_screen {
+                WorkshopScreen::Overview => self.workshop_overview(palette, context, content),
+                WorkshopScreen::Anatomy => self.workshop_anatomy(palette, context, content),
+                WorkshopScreen::Apis => self.workshop_apis(palette, context, content),
+                WorkshopScreen::Examples => self.workshop_examples(palette, context, content),
+            },
+        ));
         ScrollViewer::new()
             .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
             .content(
                 StackPanel::new()
                     .spacing(16.0)
                     .margin(Thickness::uniform(theme::PAGE_MARGIN))
+                    .keyed_children(children),
+            )
+    }
+
+    fn workshop_nav(
+        &self,
+        palette: &theme::Palette,
+        context: &ViewContext<Self>,
+        content: &workshop::Content,
+    ) -> View {
+        let items = [
+            (
+                &content.overview.nav_label,
+                WorkshopScreen::Overview,
+                "Overview",
+            ),
+            (
+                &content.anatomy.nav_label,
+                WorkshopScreen::Anatomy,
+                "Addon anatomy",
+            ),
+            (&content.apis.nav_label, WorkshopScreen::Apis, "WoW APIs"),
+            (
+                &content.examples.nav_label,
+                WorkshopScreen::Examples,
+                "Hello World",
+            ),
+        ];
+        let buttons = items
+            .into_iter()
+            .map(|(label, screen, accessible)| {
+                let selected = self.workshop_screen == screen;
+                let button = if selected {
+                    theme::accent_button(palette, label.clone())
+                } else {
+                    theme::outline_button(palette, label.clone())
+                };
+                KeyedView::new(
+                    screen.id().to_string(),
+                    button
+                        .height(theme::CONTROL_HEIGHT)
+                        .automation_name(accessible.to_string())
+                        .on_click(context.callback(move |_| Message::ShowWorkshopScreen(screen))),
+                )
+            })
+            .collect::<Vec<_>>();
+        StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(8.0)
+            .keyed_children(buttons)
+    }
+
+    fn workshop_ai_banner(&self, palette: &theme::Palette, content: &workshop::Content) -> View {
+        Border::new()
+            .background(palette.card_bg)
+            .border_brush(palette.stroke)
+            .border_thickness(1.0)
+            .corner_radius(theme::CARD_RADIUS)
+            .padding(Thickness::xy(13.0, 9.0))
+            .content(
+                StackPanel::new().spacing(6.0).children((
+                    TextBlock::new()
+                        .text(content.manifest.ai_assistance.title.clone())
+                        .font_weight(FontWeight::SEMI_BOLD)
+                        .foreground(palette.accent),
+                    TextBlock::new()
+                        .text(content.manifest.ai_assistance.body.clone())
+                        .font_size(11.0)
+                        .text_wrapping(TextWrapping::Wrap)
+                        .foreground(palette.text_muted),
+                )),
+            )
+    }
+
+    fn workshop_hero(
+        &self,
+        palette: &theme::Palette,
+        eyebrow: &str,
+        title: &str,
+        body: &str,
+    ) -> View {
+        StackPanel::new().spacing(8.0).children((
+            TextBlock::new()
+                .text(eyebrow.to_string())
+                .font_size(theme::EYEBROW_SIZE)
+                .font_weight(FontWeight::EXTRA_BOLD)
+                .foreground(palette.accent),
+            TextBlock::new()
+                .text(title.to_string())
+                .font_size(theme::TITLE_SIZE)
+                .font_weight(FontWeight::BOLD)
+                .foreground(palette.text_primary)
+                .text_wrapping(TextWrapping::Wrap),
+            TextBlock::new()
+                .text(body.to_string())
+                .font_size(15.0)
+                .text_wrapping(TextWrapping::Wrap)
+                .foreground(palette.text_muted),
+        ))
+    }
+
+    fn workshop_code_block(&self, palette: &theme::Palette, code: String) -> View {
+        Border::new()
+            .background(palette.sidebar_bg)
+            .border_brush(palette.stroke)
+            .border_thickness(1.0)
+            .corner_radius(theme::CARD_RADIUS)
+            .padding(Thickness::uniform(12.0))
+            .height(200.0)
+            .content(
+                ScrollViewer::new()
+                    .horizontal_scroll_bar_visibility(ScrollBarVisibility::Auto)
+                    .content(
+                        TextBlock::new()
+                            .text(code)
+                            .font_size(theme::CODE_SIZE)
+                            .is_text_selection_enabled(true)
+                            .text_wrapping(TextWrapping::Wrap)
+                            .foreground(palette.text_primary),
+                    ),
+            )
+    }
+
+    fn workshop_overview(
+        &self,
+        palette: &theme::Palette,
+        context: &ViewContext<Self>,
+        content: &workshop::Content,
+    ) -> View {
+        let lesson = &content.overview;
+        let start =
+            workshop::Screen::from_id(&lesson.start_screen).unwrap_or(WorkshopScreen::Anatomy);
+        let mut children = vec![
+            KeyedView::new(
+                "hero",
+                self.workshop_hero(palette, &lesson.eyebrow, &lesson.title, &lesson.body),
+            ),
+            KeyedView::new(
+                "start",
+                theme::accent_button(palette, lesson.start_label.clone())
+                    .height(theme::CONTROL_HEIGHT)
+                    .automation_name(lesson.start_label.clone())
+                    .on_click(context.callback(move |_| Message::ShowWorkshopScreen(start))),
+            ),
+            KeyedView::new(
+                "path",
+                self.workshop_hero(
+                    palette,
+                    &lesson.path_eyebrow,
+                    &lesson.path_title,
+                    &lesson.path_body,
+                ),
+            ),
+        ];
+        let steps = lesson
+            .steps
+            .iter()
+            .map(|step| {
+                let screen =
+                    workshop::Screen::from_id(&step.screen).unwrap_or(WorkshopScreen::Anatomy);
+                KeyedView::new(
+                    step.index.clone(),
+                    Border::new()
+                        .background(palette.card_bg)
+                        .border_brush(palette.stroke)
+                        .border_thickness(1.0)
+                        .corner_radius(theme::CARD_RADIUS)
+                        .padding(Thickness::uniform(14.0))
+                        .width(240.0)
+                        .content(
+                            StackPanel::new().spacing(8.0).children((
+                                TextBlock::new()
+                                    .text(step.index.clone())
+                                    .font_size(theme::EYEBROW_SIZE)
+                                    .font_weight(FontWeight::BOLD)
+                                    .foreground(palette.accent),
+                                TextBlock::new()
+                                    .text(step.title.clone())
+                                    .font_size(theme::SECTION_TITLE_SIZE)
+                                    .font_weight(FontWeight::SEMI_BOLD)
+                                    .foreground(palette.text_primary)
+                                    .text_wrapping(TextWrapping::Wrap),
+                                TextBlock::new()
+                                    .text(step.body.clone())
+                                    .font_size(theme::META_SIZE)
+                                    .text_wrapping(TextWrapping::Wrap)
+                                    .foreground(palette.text_muted),
+                                theme::outline_button(palette, step.action.clone())
+                                    .automation_name(format!("{}: {}", step.action, step.title))
+                                    .on_click(
+                                        context
+                                            .callback(move |_| Message::ShowWorkshopScreen(screen)),
+                                    ),
+                            )),
+                        ),
+                )
+            })
+            .collect::<Vec<_>>();
+        children.push(KeyedView::new(
+            "steps",
+            StackPanel::new()
+                .orientation(Orientation::Horizontal)
+                .spacing(12.0)
+                .keyed_children(steps),
+        ));
+        StackPanel::new().spacing(16.0).keyed_children(children)
+    }
+
+    fn workshop_anatomy(
+        &self,
+        palette: &theme::Palette,
+        context: &ViewContext<Self>,
+        content: &workshop::Content,
+    ) -> View {
+        let lesson = &content.anatomy;
+        let file = workshop::file_lesson(lesson, &self.workshop_file);
+        let slug = self.current_flavor_slug();
+        let label = GAME_FLAVORS[self.selected_flavor].label;
+        let code = workshop::apply_placeholders(&file.code, slug, label);
+        let files = lesson
+            .files
+            .iter()
+            .map(|item| {
+                let selected = item.id == file.id;
+                let id = item.id.clone();
+                let button = if selected {
+                    theme::accent_button(palette, format!("{} · {}", item.label, item.badge))
+                } else {
+                    theme::outline_button(palette, format!("{} · {}", item.label, item.badge))
+                };
+                KeyedView::new(
+                    item.id.clone(),
+                    button.automation_name(item.label.clone()).on_click(
+                        context.callback(move |_| Message::SelectWorkshopFile(id.clone())),
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let concepts = lesson
+            .concepts
+            .iter()
+            .map(|card| {
+                KeyedView::new(
+                    card.title.clone(),
+                    Border::new()
+                        .background(palette.card_bg)
+                        .border_brush(palette.stroke)
+                        .border_thickness(1.0)
+                        .corner_radius(theme::CARD_RADIUS)
+                        .padding(Thickness::uniform(12.0))
+                        .content(
+                            StackPanel::new().spacing(6.0).children((
+                                TextBlock::new()
+                                    .text(card.title.clone())
+                                    .font_weight(FontWeight::SEMI_BOLD)
+                                    .foreground(palette.text_primary),
+                                TextBlock::new()
+                                    .text(card.body.clone())
+                                    .font_size(theme::META_SIZE)
+                                    .text_wrapping(TextWrapping::Wrap)
+                                    .foreground(palette.text_muted),
+                            )),
+                        ),
+                )
+            })
+            .collect::<Vec<_>>();
+        StackPanel::new().spacing(16.0).keyed_children(vec![
+            KeyedView::new(
+                "hero",
+                self.workshop_hero(palette, &lesson.eyebrow, &lesson.title, &lesson.body),
+            ),
+            KeyedView::new(
+                "layout",
+                StackPanel::new()
+                    .orientation(Orientation::Horizontal)
+                    .spacing(16.0)
                     .children((
-                        lesson,
+                        Border::new()
+                            .width(250.0)
+                            .background(palette.card_bg)
+                            .border_brush(palette.stroke)
+                            .border_thickness(1.0)
+                            .corner_radius(theme::CARD_RADIUS)
+                            .padding(Thickness::uniform(12.0))
+                            .content(
+                                StackPanel::new().spacing(8.0).children((
+                                    TextBlock::new()
+                                        .text(lesson.tree_title.clone())
+                                        .font_weight(FontWeight::SEMI_BOLD)
+                                        .foreground(palette.text_primary),
+                                    StackPanel::new().spacing(6.0).keyed_children(files),
+                                )),
+                            ),
                         Border::new()
                             .background(palette.card_bg)
                             .border_brush(palette.stroke)
                             .border_thickness(1.0)
                             .corner_radius(theme::CARD_RADIUS)
-                            .padding(Thickness::xy(13.0, 9.0))
+                            .padding(Thickness::uniform(16.0))
                             .content(
-                                StackPanel::new()
-                                    .orientation(Orientation::Horizontal)
-                                    .spacing(12.0)
-                                    .children((
-                                        TextBlock::new()
-                                            .text("Using AI assistance")
-                                            .font_weight(FontWeight::SEMI_BOLD)
-                                            .foreground(palette.accent),
-                                        TextBlock::new()
-                                            .text("Share the target game version, relevant API documentation, and exact errors. Ask for small explained changes, review the code, and test each step in-game. Never share account or personal information.")
-                                            .font_size(11.0)
-                                            .text_wrapping(TextWrapping::Wrap)
-                                            .foreground(palette.text_muted),
-                                    )),
+                                StackPanel::new().spacing(10.0).children((
+                                    TextBlock::new()
+                                        .text(file.eyebrow.clone())
+                                        .font_size(theme::EYEBROW_SIZE)
+                                        .font_weight(FontWeight::EXTRA_BOLD)
+                                        .foreground(palette.accent),
+                                    TextBlock::new()
+                                        .text(file.title.clone())
+                                        .font_size(theme::SECTION_TITLE_SIZE)
+                                        .font_weight(FontWeight::SEMI_BOLD)
+                                        .foreground(palette.text_primary),
+                                    TextBlock::new()
+                                        .text(file.body.clone())
+                                        .text_wrapping(TextWrapping::Wrap)
+                                        .foreground(palette.text_muted),
+                                    self.workshop_code_block(palette, code),
+                                    TextBlock::new()
+                                        .text(file.note_title.clone())
+                                        .font_weight(FontWeight::SEMI_BOLD)
+                                        .foreground(palette.text_primary),
+                                    TextBlock::new()
+                                        .text(file.note.clone())
+                                        .text_wrapping(TextWrapping::Wrap)
+                                        .font_size(theme::META_SIZE)
+                                        .foreground(palette.text_muted),
+                                )),
                             ),
                     )),
-            )
+            ),
+            KeyedView::new(
+                "concepts",
+                VariableSizedWrapGrid::new()
+                    .orientation(Orientation::Horizontal)
+                    .item_width(240.0)
+                    .item_height(120.0)
+                    .keyed_children(concepts),
+            ),
+        ])
+    }
+
+    fn workshop_apis(
+        &self,
+        palette: &theme::Palette,
+        context: &ViewContext<Self>,
+        content: &workshop::Content,
+    ) -> View {
+        let lesson = &content.apis;
+        let slug = self.current_flavor_slug();
+        let label = GAME_FLAVORS[self.selected_flavor].label;
+        let sku_note = workshop::apply_placeholders(&lesson.sku_note, slug, label);
+        let groups = lesson
+            .api_groups
+            .iter()
+            .map(|card| {
+                KeyedView::new(
+                    card.title.clone(),
+                    Border::new()
+                        .background(palette.card_bg)
+                        .border_brush(palette.stroke)
+                        .border_thickness(1.0)
+                        .corner_radius(theme::CARD_RADIUS)
+                        .padding(Thickness::uniform(12.0))
+                        .content(
+                            StackPanel::new().spacing(6.0).children((
+                                TextBlock::new()
+                                    .text(card.title.clone())
+                                    .font_weight(FontWeight::SEMI_BOLD)
+                                    .foreground(palette.accent),
+                                TextBlock::new()
+                                    .text(card.body.clone())
+                                    .font_size(theme::META_SIZE)
+                                    .text_wrapping(TextWrapping::Wrap)
+                                    .foreground(palette.text_muted),
+                            )),
+                        ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let resources = lesson
+            .resources
+            .iter()
+            .map(|resource| {
+                let host = workshop::https_host(&resource.url).unwrap_or_else(|| "site".into());
+                let online = self.workshop_hosts.get(&host).copied().unwrap_or(true);
+                let url = resource.url.clone();
+                let action_label = if online {
+                    format!("{} {}", resource.action, host)
+                } else {
+                    workshop::offline_link_message(&host)
+                };
+                KeyedView::new(
+                    resource.title.clone(),
+                    Border::new()
+                        .background(palette.card_bg)
+                        .border_brush(palette.stroke)
+                        .border_thickness(1.0)
+                        .corner_radius(theme::CARD_RADIUS)
+                        .padding(Thickness::uniform(14.0))
+                        .content(
+                            StackPanel::new().spacing(8.0).children((
+                                TextBlock::new()
+                                    .text(resource.mark.clone())
+                                    .font_weight(FontWeight::BOLD)
+                                    .foreground(palette.accent),
+                                TextBlock::new()
+                                    .text(resource.eyebrow.clone())
+                                    .font_size(theme::EYEBROW_SIZE)
+                                    .font_weight(FontWeight::EXTRA_BOLD)
+                                    .foreground(palette.accent),
+                                TextBlock::new()
+                                    .text(resource.title.clone())
+                                    .font_size(theme::SECTION_TITLE_SIZE)
+                                    .font_weight(FontWeight::SEMI_BOLD)
+                                    .foreground(palette.text_primary)
+                                    .text_wrapping(TextWrapping::Wrap),
+                                TextBlock::new()
+                                    .text(resource.body.clone())
+                                    .text_wrapping(TextWrapping::Wrap)
+                                    .foreground(palette.text_muted),
+                                theme::outline_button(palette, action_label)
+                                    .enabled(online)
+                                    .automation_name(if online {
+                                        format!("Open {} ({host})", resource.title)
+                                    } else {
+                                        workshop::offline_link_message(&host)
+                                    })
+                                    .on_click(
+                                        context
+                                            .callback(move |_| Message::OpenLessonUrl(url.clone())),
+                                    ),
+                            )),
+                        ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let workflow = lesson
+            .workflow
+            .iter()
+            .enumerate()
+            .map(|(index, step)| {
+                KeyedView::new(
+                    format!("step-{index}"),
+                    StackPanel::new().spacing(4.0).children((
+                        TextBlock::new()
+                            .text(format!("{}. {}", index + 1, step.title))
+                            .font_weight(FontWeight::SEMI_BOLD)
+                            .foreground(palette.text_primary),
+                        TextBlock::new()
+                            .text(step.body.clone())
+                            .font_size(theme::META_SIZE)
+                            .text_wrapping(TextWrapping::Wrap)
+                            .foreground(palette.text_muted),
+                    )),
+                )
+            })
+            .collect::<Vec<_>>();
+        StackPanel::new().spacing(16.0).keyed_children(vec![
+            KeyedView::new(
+                "hero",
+                self.workshop_hero(palette, &lesson.eyebrow, &lesson.title, &lesson.body),
+            ),
+            KeyedView::new(
+                "callout",
+                Border::new()
+                    .background(palette.card_bg)
+                    .border_brush(palette.accent)
+                    .border_thickness(1.0)
+                    .corner_radius(theme::CARD_RADIUS)
+                    .padding(Thickness::uniform(14.0))
+                    .content(
+                        StackPanel::new().spacing(8.0).children((
+                            TextBlock::new()
+                                .text(lesson.callout_mark.clone())
+                                .font_weight(FontWeight::BOLD)
+                                .foreground(palette.accent),
+                            TextBlock::new()
+                                .text(lesson.callout_title.clone())
+                                .font_weight(FontWeight::SEMI_BOLD)
+                                .foreground(palette.text_primary)
+                                .text_wrapping(TextWrapping::Wrap),
+                            TextBlock::new()
+                                .text(lesson.callout_body.clone())
+                                .text_wrapping(TextWrapping::Wrap)
+                                .foreground(palette.text_muted),
+                            TextBlock::new()
+                                .text(sku_note)
+                                .text_wrapping(TextWrapping::Wrap)
+                                .font_size(theme::META_SIZE)
+                                .foreground(palette.status_ok),
+                        )),
+                    ),
+            ),
+            KeyedView::new(
+                "groups",
+                VariableSizedWrapGrid::new()
+                    .orientation(Orientation::Horizontal)
+                    .item_width(240.0)
+                    .item_height(120.0)
+                    .keyed_children(groups),
+            ),
+            KeyedView::new(
+                "resources",
+                StackPanel::new().spacing(12.0).keyed_children(resources),
+            ),
+            KeyedView::new(
+                "workflow",
+                StackPanel::new().spacing(10.0).children((
+                    TextBlock::new()
+                        .text(lesson.workflow_title.clone())
+                        .font_size(theme::SECTION_TITLE_SIZE)
+                        .font_weight(FontWeight::SEMI_BOLD)
+                        .foreground(palette.text_primary),
+                    StackPanel::new().spacing(8.0).keyed_children(workflow),
+                )),
+            ),
+        ])
+    }
+
+    fn workshop_examples(
+        &self,
+        palette: &theme::Palette,
+        context: &ViewContext<Self>,
+        content: &workshop::Content,
+    ) -> View {
+        let lesson = &content.examples;
+        let sample = workshop::sample(lesson, &self.workshop_example);
+        let slug = self.current_flavor_slug();
+        let label = GAME_FLAVORS[self.selected_flavor].label;
+        let code = workshop::apply_placeholders(&sample.code, slug, label);
+        let fit = workshop::sample_sku_status(sample, slug, label);
+        let tabs = lesson
+            .samples
+            .iter()
+            .map(|item| {
+                let selected = item.id == sample.id;
+                let id = item.id.clone();
+                let button = if selected {
+                    theme::accent_button(palette, item.tab.clone())
+                } else {
+                    theme::outline_button(palette, item.tab.clone())
+                };
+                KeyedView::new(
+                    item.id.clone(),
+                    button.automation_name(item.tab.clone()).on_click(
+                        context.callback(move |_| Message::SelectWorkshopExample(id.clone())),
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        StackPanel::new().spacing(16.0).keyed_children(vec![
+            KeyedView::new(
+                "hero",
+                self.workshop_hero(palette, &lesson.eyebrow, &lesson.title, &lesson.body),
+            ),
+            KeyedView::new(
+                "tabs",
+                StackPanel::new()
+                    .orientation(Orientation::Horizontal)
+                    .spacing(8.0)
+                    .keyed_children(tabs),
+            ),
+            KeyedView::new(
+                "stage",
+                StackPanel::new()
+                    .orientation(Orientation::Horizontal)
+                    .spacing(16.0)
+                    .children((
+                        Border::new()
+                            .width(theme::MODAL_SIDEBAR_WIDTH + 80.0)
+                            .background(palette.card_bg)
+                            .border_brush(palette.stroke)
+                            .border_thickness(1.0)
+                            .corner_radius(theme::CARD_RADIUS)
+                            .padding(Thickness::uniform(16.0))
+                            .content(
+                                StackPanel::new().spacing(8.0).children((
+                                    TextBlock::new()
+                                        .text(sample.concept.clone())
+                                        .font_size(theme::EYEBROW_SIZE)
+                                        .font_weight(FontWeight::EXTRA_BOLD)
+                                        .foreground(palette.accent),
+                                    TextBlock::new()
+                                        .text(sample.title.clone())
+                                        .font_size(theme::SECTION_TITLE_SIZE)
+                                        .font_weight(FontWeight::SEMI_BOLD)
+                                        .foreground(palette.text_primary)
+                                        .text_wrapping(TextWrapping::Wrap),
+                                    TextBlock::new()
+                                        .text(sample.description.clone())
+                                        .text_wrapping(TextWrapping::Wrap)
+                                        .foreground(palette.text_muted),
+                                    TextBlock::new()
+                                        .text(fit)
+                                        .text_wrapping(TextWrapping::Wrap)
+                                        .font_size(theme::META_SIZE)
+                                        .foreground(palette.status_ok),
+                                    TextBlock::new()
+                                        .text("Try this next")
+                                        .font_weight(FontWeight::SEMI_BOLD)
+                                        .foreground(palette.text_primary),
+                                    TextBlock::new()
+                                        .text(sample.challenge.clone())
+                                        .text_wrapping(TextWrapping::Wrap)
+                                        .font_size(theme::META_SIZE)
+                                        .foreground(palette.text_muted),
+                                )),
+                            ),
+                        Border::new()
+                            .background(palette.card_bg)
+                            .border_brush(palette.stroke)
+                            .border_thickness(1.0)
+                            .corner_radius(theme::CARD_RADIUS)
+                            .padding(Thickness::uniform(16.0))
+                            .content(
+                                StackPanel::new().spacing(8.0).children((
+                                    TextBlock::new()
+                                        .text(sample.file_name.clone())
+                                        .font_size(theme::META_SIZE)
+                                        .foreground(palette.text_muted),
+                                    theme::outline_button(palette, "Copy code")
+                                        .automation_name("Copy code")
+                                        .on_click(context.callback(|_| Message::CopyWorkshopCode)),
+                                    self.workshop_code_block(palette, code),
+                                )),
+                            ),
+                    )),
+            ),
+            KeyedView::new(
+                "reload",
+                Border::new()
+                    .background(palette.card_bg)
+                    .border_brush(palette.stroke)
+                    .border_thickness(1.0)
+                    .corner_radius(theme::CARD_RADIUS)
+                    .padding(Thickness::uniform(14.0))
+                    .content(
+                        StackPanel::new().spacing(6.0).children((
+                            TextBlock::new()
+                                .text("/reload")
+                                .font_weight(FontWeight::BOLD)
+                                .foreground(palette.accent),
+                            TextBlock::new()
+                                .text(lesson.reload_title.clone())
+                                .font_weight(FontWeight::SEMI_BOLD)
+                                .foreground(palette.text_primary),
+                            TextBlock::new()
+                                .text(lesson.reload_body.clone())
+                                .text_wrapping(TextWrapping::Wrap)
+                                .foreground(palette.text_muted),
+                        )),
+                    ),
+            ),
+        ])
     }
 
     fn managed_addon_ids(&self) -> BTreeSet<String> {
@@ -2647,6 +3314,15 @@ fn message_telemetry(message: &Message) -> String {
         }
         Message::ShowWorkshopScreen(WorkshopScreen::Overview) => "Workshop → Overview".to_string(),
         Message::ShowWorkshopScreen(WorkshopScreen::Anatomy) => "Workshop → Anatomy".to_string(),
+        Message::ShowWorkshopScreen(WorkshopScreen::Apis) => "Workshop → APIs".to_string(),
+        Message::ShowWorkshopScreen(WorkshopScreen::Examples) => {
+            "Workshop → Hello World".to_string()
+        }
+        Message::SelectWorkshopFile(id) => format!("Workshop file · {id}"),
+        Message::SelectWorkshopExample(id) => format!("Workshop example · {id}"),
+        Message::CopyWorkshopCode => "Workshop copy code".to_string(),
+        Message::OpenLessonUrl(url) => format!("Open lesson URL · {url}"),
+        Message::WorkshopHostsProbed(_) => "Workshop hosts probed".to_string(),
         Message::Search(query) => format!("Search changed · {} characters", query.len()),
         Message::SelectFlavor(index) => format!("SKU selection changed · {index:?}"),
         Message::SelectCategory(index) => format!("Category selection changed · {index:?}"),

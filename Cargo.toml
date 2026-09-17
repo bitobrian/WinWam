@@ -5,6 +5,7 @@ edition = "2024"
 description = "Windows WoW Addon Manager"
 
 [dependencies]
+clipboard-win = "5"
 hex = "0.4"
 open = "5"
 rfd = "0.15"
