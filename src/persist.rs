@@ -98,8 +98,8 @@ pub fn save_to(path: &Path, settings: &AppSettings) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(&settings.sanitized())
-        .map_err(|error| std::io::Error::other(error))?;
+    let json =
+        serde_json::to_string_pretty(&settings.sanitized()).map_err(std::io::Error::other)?;
     fs::write(path, json)
 }
 
