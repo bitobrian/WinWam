@@ -195,6 +195,7 @@ executable.
 | `data/` | Development directory data and schema |
 | `assets/` | Application branding, SKU artwork, and generated images |
 | `scripts/` | Developer asset-preparation scripts |
+| `docs/` | Product planning and implementation documentation |
 | `poc/` | Early interface mockups and visual references |
 | `.github/workflows/` | GitHub Actions release automation |
 | `.vscode/` | Shared build and native-debug configuration |
@@ -215,6 +216,10 @@ ZIP.
 
 WinWam is experimental and pre-1.0. APIs, file formats, visuals, and behavior
 may change as the real addon-management workflows are implemented.
+
+The native vNext implementation plan is tracked in the
+[vNext backlog](docs/vnext-backlog.md), with acceptance references to the
+before-and-after interface mockups under `poc/`.
 
 ## Stats for Nerds
 
