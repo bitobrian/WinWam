@@ -1,0 +1,35 @@
+{
+  "id": "overview",
+  "navLabel": "Overview",
+  "eyebrow": "START BUILDING",
+  "title": "Create your first addon.",
+  "body": "Turn an idea into a working World of Warcraft addon. Learn what each file does, build useful features one step at a time, and test every change in-game.",
+  "startLabel": "Start learning",
+  "startScreen": "anatomy",
+  "pathEyebrow": "YOUR LEARNING PATH",
+  "pathTitle": "From idea to in-game",
+  "pathBody": "No addon experience required. Start with the fundamentals and build confidence through small, working examples.",
+  "steps": [
+    {
+      "index": "01",
+      "title": "Shape your idea",
+      "body": "Start with the problem you want to solve. Define one clear feature and decide what success looks like.",
+      "action": "Explore this step",
+      "screen": "anatomy"
+    },
+    {
+      "index": "02",
+      "title": "Build and understand",
+      "body": "Create the addon structure, Lua logic, and interface a piece at a time while learning how each part works.",
+      "action": "Explore this step",
+      "screen": "apis"
+    },
+    {
+      "index": "03",
+      "title": "Test it safely",
+      "body": "Install locally, reload the UI, read errors, and improve your addon without risking your existing setup.",
+      "action": "Explore this step",
+      "screen": "examples"
+    }
+  ]
+}

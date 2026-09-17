@@ -1,0 +1,72 @@
+{
+  "id": "anatomy",
+  "navLabel": "Addon anatomy",
+  "eyebrow": "LESSON 1 · ADDON ANATOMY",
+  "title": "A folder, a manifest, and some Lua.",
+  "body": "A WoW addon is a folder inside Interface/AddOns. The game reads its table-of-contents file first, then loads the files listed there from top to bottom.",
+  "treeTitle": "MyFirstAddon",
+  "files": [
+    {
+      "id": "toc",
+      "label": "MyFirstAddon.toc",
+      "badge": "Required",
+      "eyebrow": "THE MANIFEST",
+      "title": "MyFirstAddon.toc",
+      "body": "The TOC tells WoW what your addon is called, which game interface it supports, and which files to load.",
+      "code": "## Interface: {{interface}}\n## Title: My First Addon\n## Notes: Learning addon basics\n## Author: Your Name\n## Version: 0.1.0\n\nMyFirstAddon.lua",
+      "noteTitle": "Order matters",
+      "note": "If one Lua file depends on another, list the dependency first so it is available when later files load."
+    },
+    {
+      "id": "lua",
+      "label": "MyFirstAddon.lua",
+      "badge": "Logic",
+      "eyebrow": "THE LOGIC",
+      "title": "MyFirstAddon.lua",
+      "body": "Lua files contain your addon's behavior: listening for events, calling WoW APIs, storing data, and changing the interface.",
+      "code": "local addonName = ...\n\nlocal frame = CreateFrame(\"Frame\")\nframe:RegisterEvent(\"PLAYER_LOGIN\")\n\nframe:SetScript(\"OnEvent\", function()\n  print(addonName .. \" is ready!\")\nend)",
+      "noteTitle": "Keep the first version small",
+      "note": "One file is enough for a first addon. Split code into modules only when each file has a clear responsibility."
+    },
+    {
+      "id": "xml",
+      "label": "MyFirstAddon.xml",
+      "badge": "Optional UI",
+      "eyebrow": "OPTIONAL UI LAYOUT",
+      "title": "MyFirstAddon.xml",
+      "body": "XML can declare frames and visual templates. Many modern addons create their interface directly in Lua, so this file is optional.",
+      "code": "<Ui xmlns=\"http://www.blizzard.com/wow/ui/\">\n  <Frame name=\"MyFirstAddonFrame\">\n    <Size x=\"240\" y=\"100\"/>\n    <Anchors>\n      <Anchor point=\"CENTER\"/>\n    </Anchors>\n  </Frame>\n</Ui>",
+      "noteTitle": "Lua or XML?",
+      "note": "Start with Lua unless a guide or an existing Blizzard template gives you a clear reason to use XML."
+    },
+    {
+      "id": "saved",
+      "label": "SavedVariables",
+      "badge": "Game managed",
+      "eyebrow": "PERSISTENT SETTINGS",
+      "title": "SavedVariables",
+      "body": "SavedVariables are Lua tables named in the TOC. WoW saves them when you log out or reload and restores them next time.",
+      "code": "## SavedVariables: MyFirstAddonDB\n\n-- In MyFirstAddon.lua\nMyFirstAddonDB = MyFirstAddonDB or {\n  greeting = \"Hello!\",\n  enabled = true,\n}",
+      "noteTitle": "Let WoW write the file",
+      "note": "Do not edit the generated SavedVariables file while the game is running. Change the table through your addon code instead."
+    }
+  ],
+  "concepts": [
+    {
+      "title": "Events",
+      "body": "Notifications from the game—such as login, entering combat, or receiving loot—that your Lua code can listen for."
+    },
+    {
+      "title": "Frames",
+      "body": "The building blocks of the interface. Frames can display content, receive events, and contain buttons, text, or textures."
+    },
+    {
+      "title": "SavedVariables",
+      "body": "Tables WoW writes to disk when you log out or reload, allowing your addon to remember settings."
+    },
+    {
+      "title": "Slash commands",
+      "body": "Chat commands such as /hello that give your addon a quick, friendly way to accept input."
+    }
+  ]
+}

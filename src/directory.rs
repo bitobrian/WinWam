@@ -19,6 +19,9 @@ const URL_HOST_ALLOWLIST: &[&str] = &[
     "paypal.com",
     "paypal.me",
     "buymeacoffee.com",
+    "warcraft.wiki.gg",
+    "us.forums.blizzard.com",
+    "forums.blizzard.com",
 ];
 
 const FLAVORS: [(&str, &str); 5] = [

@@ -1,0 +1,66 @@
+{
+  "id": "apis",
+  "navLabel": "WoW APIs",
+  "eyebrow": "LESSON 2 · WOW APIs",
+  "title": "How your addon talks to the game.",
+  "body": "An API—Application Programming Interface—is a set of functions, events, and UI objects Blizzard makes available to addon code. It is the safe vocabulary your Lua uses to ask the game for information or create interface elements. This is the in-game Lua addon API, not the Battle.net web API.",
+  "calloutMark": "C_API",
+  "calloutTitle": "Think of an API as a menu, not a back door.",
+  "calloutBody": "Your addon can only do what the game exposes. Some actions are protected during combat, and some information is intentionally restricted.",
+  "skuNote": "The selected SKU is {sku}. Use Interface {interface} in your TOC, and confirm each function or event for that client.",
+  "apiGroups": [
+    {
+      "title": "Functions",
+      "body": "Named calls such as UnitName or CreateFrame that return information or create UI objects."
+    },
+    {
+      "title": "Events",
+      "body": "Messages the game fires, including PLAYER_LOGIN and PLAYER_ENTERING_WORLD."
+    },
+    {
+      "title": "Widgets",
+      "body": "Frames, buttons, textures, and fonts that make up the on-screen interface."
+    },
+    {
+      "title": "Protected",
+      "body": "Actions the game blocks during combat so addons cannot automate restricted gameplay."
+    }
+  ],
+  "resources": [
+    {
+      "mark": "W",
+      "eyebrow": "START HERE",
+      "title": "Warcraft Wiki API reference",
+      "body": "Search functions, events, widgets, examples, and differences between Retail and Classic.",
+      "action": "Open documentation",
+      "url": "https://warcraft.wiki.gg/wiki/World_of_Warcraft_API"
+    },
+    {
+      "mark": "/api",
+      "eyebrow": "OFFICIAL BLIZZARD RESOURCES",
+      "title": "In-game API documentation",
+      "body": "Type /api in WoW for Blizzard's generated function and event reference. Visit the official UI & Macro forum for addon-development guidance and discussion. Do not confuse this with the Battle.net web API.",
+      "action": "Open Blizzard UI & Macro",
+      "url": "https://us.forums.blizzard.com/en/wow/c/guides/ui-macro/35"
+    }
+  ],
+  "workflowTitle": "A good research loop",
+  "workflow": [
+    {
+      "title": "Name the behavior",
+      "body": "I want to know when the player enters the world."
+    },
+    {
+      "title": "Find the event or function",
+      "body": "Search the API reference for PLAYER_ENTERING_WORLD."
+    },
+    {
+      "title": "Check the selected SKU",
+      "body": "Confirm availability for Retail, Classic, or the client you are targeting."
+    },
+    {
+      "title": "Build the smallest test",
+      "body": "Try one event or function first, then add behavior after it works."
+    }
+  ]
+}
