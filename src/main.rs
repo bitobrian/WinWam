@@ -190,27 +190,29 @@ impl Component for WinWam {
         };
 
         let source_base_url = settings.source_base_url.clone();
-        let (source_list, directory_error) =
-            match load_source_list(selected_flavor, &source_base_url) {
-                Ok(source_list) => (source_list, None),
-                Err(error) => {
-                    logging::error(&format!(
-                        "Could not refresh the initial addon directory: {error}"
-                    ));
-                    match development_source_list() {
-                        Some(source_list) => (
-                            source_list,
-                            Some(format!(
-                                "Could not refresh the directory: {error}. Showing development data."
-                            )),
-                        ),
-                        None => (
-                            empty_source_list(selected_flavor),
-                            Some(format!("Could not load directory: {error}")),
-                        ),
-                    }
+        let (source_list, directory_error) = match load_source_list(
+            selected_flavor,
+            &source_base_url,
+        ) {
+            Ok(source_list) => (source_list, None),
+            Err(error) => {
+                logging::error(&format!(
+                    "Could not refresh the initial addon directory: {error}"
+                ));
+                match development_source_list() {
+                    Some(source_list) => (
+                        source_list,
+                        Some(format!(
+                            "Could not refresh the directory: {error}. Showing development data."
+                        )),
+                    ),
+                    None => (
+                        empty_source_list(selected_flavor),
+                        Some(format!("Could not load directory: {error}")),
+                    ),
                 }
-            };
+            }
+        };
         let (installed_addons, installed_addon_ids) = scan_installed(
             Some(Path::new(wow_folder.trim())),
             selected_flavor,
@@ -338,7 +340,11 @@ impl Component for WinWam {
                     if !name.is_empty() {
                         let flavor = draft
                             .editing_index
-                            .and_then(|index| self.loadouts.get(index).map(|loadout| loadout.flavor.clone()))
+                            .and_then(|index| {
+                                self.loadouts
+                                    .get(index)
+                                    .map(|loadout| loadout.flavor.clone())
+                            })
                             .filter(|flavor| !flavor.is_empty())
                             .unwrap_or_else(|| self.current_flavor_slug().to_string());
                         let loadout = Loadout {
@@ -1015,7 +1021,7 @@ impl WinWam {
                     .horizontal_alignment(HorizontalAlignment::Center)
                     .children((
                         theme::outline_button(palette, "Previous")
-                            .is_enabled(page > 0)
+                            .enabled(page > 0)
                             .on_click(context.callback(|_| Message::PreviousBrowsePage)),
                         theme::stat_chip(
                             palette,
@@ -1030,7 +1036,7 @@ impl WinWam {
                             },
                         ),
                         theme::outline_button(palette, "Next")
-                            .is_enabled(page + 1 < page_count)
+                            .enabled(page + 1 < page_count)
                             .on_click(context.callback(|_| Message::NextBrowsePage)),
                     )),
             ));
@@ -1384,9 +1390,8 @@ impl WinWam {
                             ],
                             None => vec![KeyedView::new(
                                 "close",
-                                theme::accent_button(palette, cancel).on_click(
-                                    context.callback(|_| Message::DismissLoadoutPrompt),
-                                ),
+                                theme::accent_button(palette, cancel)
+                                    .on_click(context.callback(|_| Message::DismissLoadoutPrompt)),
                             )],
                         }),
                 )),
@@ -1571,43 +1576,40 @@ fn addon_card(
         Border::new().width(0.0).into()
     };
     let details: View = if expanded {
-        StackPanel::new()
-            .spacing(10.0)
-            .children((
-                TextBlock::new()
-                    .text(addon.summary.clone())
-                    .font_size(14.0)
-                    .text_wrapping(TextWrapping::Wrap)
-                    .foreground(palette.text_primary),
-                TextBlock::new()
-                    .text(format!(
-                        "Source: {} · {}/{}",
-                        addon.source_kind, addon.owner, addon.repo
-                    ))
-                    .font_size(12.0)
-                    .foreground(palette.text_muted),
-                TextBlock::new()
-                    .text(format!("Author: {}", addon.author))
-                    .font_size(12.0)
-                    .foreground(palette.text_muted),
-                TextBlock::new()
-                    .text(format!(
-                        "Version: {}",
-                        addon.version.as_deref().unwrap_or("unspecified")
-                    ))
-                    .font_size(12.0)
-                    .foreground(palette.text_muted),
-                TextBlock::new()
-                    .text(if addon.tags.is_empty() {
-                        "Tags: none".to_string()
-                    } else {
-                        format!("Tags: {}", addon.tags.join(", "))
-                    })
-                    .font_size(12.0)
-                    .text_wrapping(TextWrapping::Wrap)
-                    .foreground(palette.text_muted),
-            ))
-            .into()
+        StackPanel::new().spacing(10.0).children((
+            TextBlock::new()
+                .text(addon.summary.clone())
+                .font_size(14.0)
+                .text_wrapping(TextWrapping::Wrap)
+                .foreground(palette.text_primary),
+            TextBlock::new()
+                .text(format!(
+                    "Source: {} · {}/{}",
+                    addon.source_kind, addon.owner, addon.repo
+                ))
+                .font_size(12.0)
+                .foreground(palette.text_muted),
+            TextBlock::new()
+                .text(format!("Author: {}", addon.author))
+                .font_size(12.0)
+                .foreground(palette.text_muted),
+            TextBlock::new()
+                .text(format!(
+                    "Version: {}",
+                    addon.version.as_deref().unwrap_or("unspecified")
+                ))
+                .font_size(12.0)
+                .foreground(palette.text_muted),
+            TextBlock::new()
+                .text(if addon.tags.is_empty() {
+                    "Tags: none".to_string()
+                } else {
+                    format!("Tags: {}", addon.tags.join(", "))
+                })
+                .font_size(12.0)
+                .text_wrapping(TextWrapping::Wrap)
+                .foreground(palette.text_muted),
+        ))
     } else {
         TextBlock::new()
             .text(addon.summary.clone())
@@ -1631,11 +1633,7 @@ fn addon_card(
                 .rows([GridLength::Auto, GridLength::STAR, GridLength::Auto])
                 .children((
                     Grid::new()
-                        .columns([
-                            GridLength::Auto,
-                            GridLength::STAR,
-                            GridLength::Auto,
-                        ])
+                        .columns([GridLength::Auto, GridLength::STAR, GridLength::Auto])
                         .children((
                             theme::addon_icon_tile(palette, &addon.name),
                             StackPanel::new()
@@ -1731,7 +1729,7 @@ fn installed_addon_row(
                     theme::outline_button(palette, "Uninstall")
                         .grid_column(3)
                         .vertical_alignment(VerticalAlignment::Center)
-                        .is_enabled(installed.managed)
+                        .enabled(installed.managed)
                         .on_click({
                             let id = addon.id.clone();
                             context.callback(move |_| Message::UninstallAddon(id.clone()))
@@ -1785,12 +1783,16 @@ fn discovered_addon_row(
                         .vertical_alignment(VerticalAlignment::Center)
                         .content(theme::category_chip(
                             palette,
-                            if installed.managed { "Managed" } else { "Local" },
+                            if installed.managed {
+                                "Managed"
+                            } else {
+                                "Local"
+                            },
                         )),
                     theme::outline_button(palette, "Uninstall")
                         .grid_column(3)
                         .vertical_alignment(VerticalAlignment::Center)
-                        .is_enabled(installed.managed)
+                        .enabled(installed.managed)
                         .on_click({
                             let id = installed.id.clone();
                             context.callback(move |_| Message::UninstallAddon(id.clone()))
@@ -1945,7 +1947,9 @@ fn scan_installed(
 ) -> (Vec<scan::InstalledAddon>, BTreeSet<String>) {
     let catalog = catalog_entries(addons);
     let installed = scan::scan_installed_addons(
-        wow_folder.and_then(|path| addons_folder(path, index)).as_deref(),
+        wow_folder
+            .and_then(|path| addons_folder(path, index))
+            .as_deref(),
         &catalog,
     );
     let ids = installed.iter().map(|addon| addon.id.clone()).collect();
