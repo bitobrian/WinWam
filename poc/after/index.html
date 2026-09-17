@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WinWam — Launcher Concept</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="launcher" data-sku="retail">
+    <header class="topbar">
+      <div class="brand">
+        <img src="../../assets/icon.png" alt="">
+        <strong>WinWAM</strong>
+      </div>
+      <nav aria-label="Main navigation">
+        <button class="topnav" data-view="discover">DISCOVER</button>
+        <button class="topnav active" data-view="installed">MY ADDONS</button>
+        <button class="topnav" data-view="loadouts">LOADOUTS</button>
+        <button class="topnav" data-view="workshop">ADDON WORKSHOP</button>
+      </nav>
+      <div class="window-controls" aria-hidden="true">─　□　×</div>
+    </header>
+
+    <aside class="game-panel">
+      <div class="game-art">
+        <div class="art-glow"></div>
+        <img id="skuArtwork" src="../../assets/generated/midnight-logo.png" alt="World of Warcraft Midnight">
+      </div>
+      <div class="game-controls">
+        <label for="release">GAME VERSION</label>
+        <select id="release">
+          <option value="retail">Retail</option>
+          <option value="mop-classic">Mists of Pandaria Classic</option>
+          <option value="classic">Classic</option>
+          <option value="bc-anniversary">Burning Crusade Anniversary</option>
+          <option value="forever">Forever</option>
+        </select>
+        <div class="game-action-row">
+          <button class="primary" id="updateButton">Check for Updates</button>
+          <button class="settings-button" id="settingsButton" aria-label="Settings">⚙</button>
+        </div>
+        <p id="updateStatus">Last checked: just now</p>
+        <em>50 addons available.</em>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <div id="catalogView">
+        <section class="gamebar">
+          <strong>ADDON TYPES</strong>
+          <div id="categoryRail" class="category-rail"></div>
+        </section>
+
+        <aside class="support-banner">
+          <div class="support-icon">♥</div>
+          <div><p class="eyebrow">DID YOU KNOW?</p><strong>Enjoy an addon? Consider supporting its author.</strong><span> Many authors accept donations through GitHub Sponsors, Ko-fi, Patreon, or their project page. A contribution, star, or kind note all help.</span></div>
+          <button id="learnSupport">Support authors</button>
+        </aside>
+
+        <div class="section-heading">
+          <div><p class="eyebrow" id="sectionEyebrow">COMMUNITY PICKS</p><h2 id="sectionTitle">Featured Addons</h2></div>
+          <div class="search-wrap"><span>⌕</span><input id="search" type="search" placeholder="Search addons"></div>
+        </div>
+        <section class="addon-grid" id="addonGrid"></section>
+      </div>
+
+      <section class="workshop-view" id="workshopView" hidden>
+        <nav class="workshop-nav" aria-label="Addon Workshop lessons">
+          <button class="active" data-workshop-screen="overview">Overview</button><button data-workshop-screen="anatomy">Addon anatomy</button><button data-workshop-screen="apis">WoW APIs</button><button data-workshop-screen="examples">Hello World</button>
+        </nav>
+        <aside class="ai-assistance"><strong>Using AI assistance</strong><span>Share the target game version, relevant API documentation, and exact errors. Ask for small explained changes, review the code, and test each step in-game. Never share account or personal information.</span></aside>
+
+        <div class="workshop-screen" data-workshop-panel="overview">
+        <header class="workshop-hero">
+          <div><p class="eyebrow">START BUILDING</p><h1>Create your first addon.</h1><p>Turn an idea into a working World of Warcraft addon. Learn what each file does, build useful features one step at a time, and test every change in-game.</p><button class="primary" id="startWorkshop">Start learning</button></div>
+          <div class="code-preview" aria-hidden="true"><div><span><b>λ</b> MyFirstAddon.lua</span><strong><i>─</i><i>□</i><i>×</i></strong></div><code><b>local</b> frame = CreateFrame(<em>"Frame"</em>)<br><br>frame:RegisterEvent(<em>"PLAYER_LOGIN"</em>)<br>frame:SetScript(<em>"OnEvent"</em>, <b>function</b>()<br>&nbsp;&nbsp;print(<em>"Hello, Azeroth!"</em>)<br><b>end</b>)</code></div>
+        </header>
+
+        <div class="workshop-heading"><p class="eyebrow">YOUR LEARNING PATH</p><h2>From idea to in-game</h2><p>No addon experience required. Start with the fundamentals and build confidence through small, working examples.</p></div>
+        <div class="learning-steps">
+          <article><span>01</span><div class="step-icon">✦</div><h3>Shape your idea</h3><p>Start with the problem you want to solve. Define one clear feature and decide what success looks like.</p><button data-workshop-step="idea">Explore this step →</button></article>
+          <article><span>02</span><div class="step-icon">⌘</div><h3>Build and understand</h3><p>Create the addon structure, Lua logic, and interface a piece at a time while learning how each part works.</p><button data-workshop-step="build">Explore this step →</button></article>
+          <article><span>03</span><div class="step-icon">✓</div><h3>Test it safely</h3><p>Install locally, reload the UI, read errors, and improve your addon without risking your existing setup.</p><button data-workshop-step="test">Explore this step →</button></article>
+        </div>
+        </div>
+
+        <div class="workshop-screen" data-workshop-panel="anatomy" hidden>
+          <header class="lesson-header"><p class="eyebrow">LESSON 1 · ADDON ANATOMY</p><h1>A folder, a manifest, and some Lua.</h1><p>A WoW addon is a folder inside <code>Interface/AddOns</code>. The game reads its table-of-contents file first, then loads the files listed there from top to bottom.</p></header>
+          <div class="anatomy-layout">
+            <section class="file-tree"><div class="tree-title"><span>▾</span> MyFirstAddon</div><button class="active" data-file="toc">MyFirstAddon.toc <small>Required</small></button><button data-file="lua">MyFirstAddon.lua <small>Logic</small></button><button data-file="xml">MyFirstAddon.xml <small>Optional UI</small></button><button data-file="saved">SavedVariables <small>Game managed</small></button></section>
+            <section class="file-explainer" id="fileExplainer"><p class="eyebrow">THE MANIFEST</p><h2>MyFirstAddon.toc</h2><p>The TOC tells WoW what your addon is called, which game interface it supports, and which files to load.</p><pre><code>## Interface: 120000
+## Title: My First Addon
+## Notes: Learning addon basics
+## Author: Your Name
+## Version: 0.1.0
+
+MyFirstAddon.lua</code></pre><aside><strong>Order matters</strong><span>If one Lua file depends on another, list the dependency first so it is available when later files load.</span></aside></section>
+          </div>
+          <div class="concept-grid"><article><b>Events</b><p>Notifications from the game—such as login, entering combat, or receiving loot—that your Lua code can listen for.</p></article><article><b>Frames</b><p>The building blocks of the interface. Frames can display content, receive events, and contain buttons, text, or textures.</p></article><article><b>SavedVariables</b><p>Tables WoW writes to disk when you log out or reload, allowing your addon to remember settings.</p></article><article><b>Slash commands</b><p>Chat commands such as <code>/hello</code> that give your addon a quick, friendly way to accept input.</p></article></div>
+        </div>
+
+        <div class="workshop-screen" data-workshop-panel="apis" hidden>
+          <header class="lesson-header"><p class="eyebrow">LESSON 2 · WOW APIs</p><h1>How your addon talks to the game.</h1><p>An API—Application Programming Interface—is a set of functions, events, and UI objects Blizzard makes available to addon code. It is the safe vocabulary your Lua uses to ask the game for information or create interface elements.</p></header>
+          <div class="api-callout"><span>C_API</span><div><strong>Think of an API as a menu, not a back door.</strong><p>Your addon can only do what the game exposes. Some actions are protected during combat, and some information is intentionally restricted.</p></div></div>
+          <div class="resource-grid">
+            <a href="https://warcraft.wiki.gg/wiki/World_of_Warcraft_API" target="_blank" rel="noreferrer"><span class="resource-mark">W</span><div><p class="eyebrow">START HERE</p><h3>Warcraft Wiki API reference</h3><p>Search functions, events, widgets, examples, and differences between Retail and Classic.</p><b>Open documentation ↗</b></div></a>
+            <a href="https://us.forums.blizzard.com/en/wow/c/guides/ui-macro/35" target="_blank" rel="noreferrer"><span class="resource-mark">/api</span><div><p class="eyebrow">OFFICIAL BLIZZARD RESOURCES</p><h3>In-game API documentation</h3><p>Type <code>/api</code> in WoW for Blizzard’s generated function and event reference. Visit the official UI &amp; Macro forum for addon-development guidance and discussion.</p><b>Open Blizzard UI &amp; Macro ↗</b></div></a>
+          </div>
+          <div class="api-workflow"><h2>A good research loop</h2><ol><li><span>1</span><div><strong>Name the behavior</strong><p>“I want to know when the player enters the world.”</p></div></li><li><span>2</span><div><strong>Find the event or function</strong><p>Search the API reference for <code>PLAYER_ENTERING_WORLD</code>.</p></div></li><li><span>3</span><div><strong>Check the selected SKU</strong><p>Confirm availability for Retail, Classic, or the client you are targeting.</p></div></li><li><span>4</span><div><strong>Build the smallest test</strong><p>Try one event or function first, then add behavior after it works.</p></div></li></ol></div>
+        </div>
+
+        <div class="workshop-screen" data-workshop-panel="examples" hidden>
+          <header class="lesson-header"><p class="eyebrow">LESSON 3 · HELLO WORLD</p><h1>Small wins you can see in-game.</h1><p>Each example teaches one core concept. Copy it into <code>MyFirstAddon.lua</code>, type <code>/reload</code> in-game, and try it out.</p></header>
+          <div class="example-tabs"><button class="active" data-example="login">Login greeting</button><button data-example="slash">Slash command</button><button data-example="button">Clickable button</button></div>
+          <article class="example-stage">
+            <div class="example-copy"><p class="eyebrow" id="exampleConcept">EVENTS + CHAT</p><h2 id="exampleTitle">Say hello when you log in</h2><p id="exampleDescription">Create a frame, listen for the login event, and print a friendly message to the chat window.</p><div class="try-it"><strong>Try this next</strong><span id="exampleChallenge">Include your character’s name using <code>UnitName("player")</code>.</span></div></div>
+            <div class="example-code"><div><span>MyFirstAddon.lua</span><button id="copyExample">Copy code</button></div><pre><code id="exampleCode">local frame = CreateFrame("Frame")
+frame:RegisterEvent("PLAYER_LOGIN")
+
+frame:SetScript("OnEvent", function()
+  print("Hello, Azeroth!")
+end)</code></pre></div>
+          </article>
+          <aside class="reload-tip"><span>/reload</span><div><strong>Your fastest feedback loop</strong><p>Save the file, return to WoW, and type <code>/reload</code>. If something fails, the error message is your best starting point for debugging.</p></div></aside>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="detailsDialog">
+      <button class="dialog-close" aria-label="Close">×</button>
+      <header class="dialog-hero" id="dialogArt">
+        <img id="dialogIcon" src="" alt="">
+        <div><p class="eyebrow" id="dialogCategory"></p><h2 id="dialogTitle"></h2><p class="dialog-author" id="dialogAuthor"></p></div>
+      </header>
+      <div class="dialog-layout">
+        <section class="dialog-main">
+          <h3>About this addon</h3>
+          <p id="dialogDescription"></p>
+          <h3>What it adds</h3>
+          <ul><li>Designed to blend naturally with the game UI</li><li>Lightweight configuration with sensible defaults</li><li>Maintained by an active community author</li></ul>
+          <div class="trust-note"><span>✓</span><div><strong>Community source</strong><small>Review the code and report issues directly to the author.</small></div></div>
+        </section>
+        <aside class="dialog-sidebar">
+          <span class="status-badge" id="dialogStatus"></span>
+          <dl><div><dt>Version</dt><dd id="dialogVersion"></dd></div><div><dt>Game version</dt><dd id="dialogSku"></dd></div><div><dt>Downloads</dt><dd id="dialogDownloads"></dd></div><div><dt>Updated</dt><dd>3 days ago</dd></div></dl>
+          <button class="primary wide" id="dialogInstall"></button>
+          <a class="dialog-action" href="https://github.com/" target="_blank" rel="noreferrer"><span>⌘</span> View source project <b>↗</b></a>
+          <button class="dialog-action support-action" id="dialogSupport"><span>♥</span> Support this author <b>›</b></button>
+        </aside>
+      </div>
+    </dialog>
+    <div class="toast" id="toast" role="status"></div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
