@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/winwam/directory/blob/main/addon-sources.schema.json",
+  "title": "World of Warcraft addon directory",
+  "description": "A versioned list of open-source World of Warcraft addons for a single game flavor.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "directory", "flavor", "addons"],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri-reference" },
+    "schemaVersion": { "const": "1.0" },
+    "directory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "repository"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "format": "uri", "pattern": "^https://github\\.com/" },
+        "description": { "type": "string" }
+      }
+    },
+    "flavor": {
+      "enum": ["Retail", "MoPClassic", "Classic", "BCAnniversary", "Forever"]
+    },
+    "addons": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/addon" }
+    }
+  },
+  "$defs": {
+    "addon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "summary", "author", "sourceKind", "owner", "repo", "category"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "name": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "author": { "type": "string", "minLength": 1 },
+        "sourceKind": { "enum": ["GitHub", "GitLab", "Gitea"] },
+        "host": { "type": "string", "format": "hostname", "default": "github.com" },
+        "owner": { "type": "string", "minLength": 1 },
+        "repo": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "homepage": { "type": "string", "format": "uri" },
+        "category": {
+          "enum": ["Combat", "Raiding", "Dungeons", "Interface", "Bags", "Economy", "Collections", "Quests", "Nameplates", "ActionBars", "UnitFrames", "QualityOfLife", "Roleplay", "Libraries", "Development"]
+        },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        }
+      }
+    }
+  }
+}
