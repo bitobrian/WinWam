@@ -1,0 +1,185 @@
+{
+  "$schema": "../addon-sources.schema.json",
+  "schemaVersion": "1.1",
+  "visualChrome": [
+    "DISCOVER",
+    "MY ADDONS",
+    "LOADOUTS",
+    "ADDON WORKSHOP",
+    "GAME VERSION",
+    "Check for Updates",
+    "Settings",
+    "Last checked: just now",
+    "addons available.",
+    "ADDON TYPES",
+    "DID YOU KNOW?",
+    "Enjoy an addon? Consider supporting its author.",
+    "Support authors",
+    "COMMUNITY PICKS",
+    "Featured Addons",
+    "YOUR COLLECTION",
+    "My Addons",
+    "Search addons",
+    "START BUILDING",
+    "Create your first addon.",
+    "Start learning",
+    "Using AI assistance"
+  ],
+  "directory": {
+    "name": "WinWAM Visual Parity Catalog",
+    "repository": "https://github.com/winwam/directory",
+    "description": "Seeded Retail catalog for 1440×856, 100% scale, dark, Segoe UI captures.",
+    "generatedAt": "2026-09-17T00:00:00Z"
+  },
+  "flavor": "Retail",
+  "addons": [
+    {
+      "id": "arcane-alerts",
+      "name": "Arcane Alerts",
+      "summary": "Configurable combat notifications with cooldown tracking.",
+      "author": "Northwind Labs",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "arcane-alerts",
+      "category": "Combat",
+      "tags": [
+        "alerts",
+        "cooldowns",
+        "combat"
+      ],
+      "version": "1.2.0",
+      "homepage": "https://github.com/winwam-samples/arcane-alerts",
+      "sourceUrl": "https://github.com/winwam-samples/arcane-alerts",
+      "supportUrls": [
+        {
+          "label": "GitHub Sponsors",
+          "url": "https://github.com/sponsors/winwam-samples"
+        }
+      ],
+      "latestRelease": {
+        "version": "1.2.0",
+        "publishedAt": "2026-09-01T12:00:00Z",
+        "archiveUrl": "https://github.com/winwam-samples/arcane-alerts/releases/download/v1.2.0/arcane-alerts.zip",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "flavors": [
+          "Retail"
+        ],
+        "interfaceVersions": [
+          "120000"
+        ]
+      },
+      "downloadCount": 12300,
+      "downloadCountCapturedAt": "2026-09-17T00:00:00Z",
+      "description": "A polished community addon designed to make every session in Azeroth smoother.",
+      "features": [
+        "Cooldown tracking",
+        "Priority-based alerts"
+      ]
+    },
+    {
+      "id": "bag-commander",
+      "name": "Bag Commander",
+      "summary": "Inventory sorting and leftover-space warnings.",
+      "author": "Lua Workshop",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "bag-commander",
+      "category": "Bags",
+      "tags": [
+        "bags",
+        "inventory"
+      ],
+      "version": "1.0.0",
+      "homepage": "https://github.com/winwam-samples/bag-commander",
+      "sourceUrl": "https://github.com/winwam-samples/bag-commander",
+      "latestRelease": {
+        "version": "1.0.0",
+        "publishedAt": "2026-08-20T12:00:00Z",
+        "archiveUrl": "https://github.com/winwam-samples/bag-commander/releases/download/v1.0.0/bag-commander.zip",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "flavors": [
+          "Retail"
+        ],
+        "interfaceVersions": [
+          "120000"
+        ]
+      },
+      "downloadCount": 1500,
+      "downloadCountCapturedAt": "2026-09-17T00:00:00Z",
+      "description": "A polished community addon designed to make every session in Azeroth smoother."
+    },
+    {
+      "id": "collectors-journal",
+      "name": "Collector's Journal",
+      "summary": "Track appearances, mounts, and missing collection pieces.",
+      "author": "Copper Byte",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "collectors-journal",
+      "category": "Collections",
+      "tags": [
+        "collections"
+      ],
+      "version": "2.1.0",
+      "homepage": "https://github.com/winwam-samples/collectors-journal",
+      "sourceUrl": "https://github.com/winwam-samples/collectors-journal",
+      "downloadCount": 20100
+    },
+    {
+      "id": "combat-rhythm",
+      "name": "Combat Rhythm",
+      "summary": "Rotation prompts for the selected SKU.",
+      "author": "Waypoint Works",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "combat-rhythm",
+      "category": "Combat",
+      "tags": [
+        "combat"
+      ],
+      "version": "0.9.0",
+      "homepage": "https://github.com/winwam-samples/combat-rhythm",
+      "sourceUrl": "https://github.com/winwam-samples/combat-rhythm",
+      "downloadCount": 8700
+    },
+    {
+      "id": "clean-interface",
+      "name": "Clean Interface",
+      "summary": "Quieter unit frames and action bars.",
+      "author": "Azeroth Labs",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "clean-interface",
+      "category": "Interface",
+      "tags": [
+        "interface"
+      ],
+      "version": "3.0.0",
+      "homepage": "https://github.com/winwam-samples/clean-interface",
+      "sourceUrl": "https://github.com/winwam-samples/clean-interface"
+    },
+    {
+      "id": "easy-questing",
+      "name": "Easy Questing",
+      "summary": "Objective list and turn-in hints.",
+      "author": "Lua Workshop",
+      "sourceKind": "GitHub",
+      "host": "github.com",
+      "owner": "winwam-samples",
+      "repo": "easy-questing",
+      "category": "Quests",
+      "tags": [
+        "quests"
+      ],
+      "version": "1.4.0",
+      "homepage": "https://github.com/winwam-samples/easy-questing",
+      "sourceUrl": "https://github.com/winwam-samples/easy-questing",
+      "downloadCount": 5400
+    }
+  ]
+}

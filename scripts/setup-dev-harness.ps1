@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$Reset,
-    [switch]$WithInstalledAddons
+    [switch]$WithInstalledAddons,
+    [switch]$VisualParity
 )
 
 $AddonCount = 500
@@ -104,9 +105,50 @@ $($addon.Folder).lua
     )
 }
 
+if ($VisualParity) {
+    $fixture = Join-Path $projectRoot 'data\fixtures\visual-catalog.json'
+    Copy-Item -LiteralPath $fixture -Destination (Join-Path $directoryRoot 'addons.retail.json') -Force
+    $addonsRoot = Join-Path $wowRoot '_retail_\Interface\AddOns'
+    New-Item -ItemType Directory -Path $addonsRoot -Force | Out-Null
+    $managed = @(
+        @{ Id = 'arcane-alerts'; Folder = 'ArcaneAlerts'; Title = 'Arcane Alerts'; Version = '1.1.0' },
+        @{ Id = 'bag-commander'; Folder = 'BagCommander'; Title = 'Bag Commander'; Version = '0.9.0' }
+    )
+    foreach ($addon in $managed) {
+        $addonRoot = Join-Path $addonsRoot $addon.Folder
+        New-Item -ItemType Directory -Path $addonRoot -Force | Out-Null
+        @(
+            "## Interface: 120000",
+            "## Title: $($addon.Title)",
+            "## Author: WinWam Visual Parity",
+            "## Version: $($addon.Version)",
+            "$($addon.Folder).lua"
+        ) | Set-Content -LiteralPath (Join-Path $addonRoot "$($addon.Folder).toc") -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $addonRoot "$($addon.Folder).lua") -Encoding utf8 -Value "-- Visual-parity managed addon."
+        $addon.Id | Set-Content -LiteralPath (Join-Path $addonRoot '.winwam-id') -Encoding ascii -NoNewline
+        $manifest = @{
+            addonId = $addon.Id
+            source = @{ host = 'github.com'; owner = 'winwam-samples'; repo = $addon.Id }
+            releaseVersion = $addon.Version
+            ownedFolders = @($addon.Folder)
+            fileSha256 = @{}
+            sku = 'retail'
+            installedAt = '2026-09-17T00:00:00Z'
+        } | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText(
+            (Join-Path $addonRoot '.winwam-manifest.json'),
+            $manifest,
+            [System.Text.UTF8Encoding]::new($false)
+        )
+    }
+    Write-Host 'Visual parity fixture installed for Retail (two managed addons).'
+}
+
 Write-Host "WinWam development harness created at $harnessRoot"
 if ($WithInstalledAddons) {
     Write-Host 'Synthetic addons were installed in each flavor.'
+} elseif ($VisualParity) {
+    Write-Host 'Retail AddOns contain two managed visual-parity addons.'
 } else {
     Write-Host 'Addon folders are empty. Pass -WithInstalledAddons to populate them.'
 }

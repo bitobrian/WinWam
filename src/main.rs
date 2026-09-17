@@ -9,6 +9,7 @@ use windows_reactor::*;
 
 mod directory;
 mod install;
+mod layout_contract;
 mod loadout;
 mod logging;
 mod persist;
@@ -836,7 +837,7 @@ impl WinWam {
             UpdateStatus::Checking => "Checking…".to_string(),
             UpdateStatus::Current => "Last checked: just now".to_string(),
             UpdateStatus::UpdatesAvailable(count) => format!("{count} updates available."),
-            UpdateStatus::Failed(_) => "Could not check for updates".to_string(),
+            UpdateStatus::Failed(_) => "Updates check failed".to_string(),
         }
     }
 
@@ -908,10 +909,12 @@ impl WinWam {
                                     .style(ButtonStyle::Subtle)
                                     .resource_overrides(theme::combo_box_resources(palette))
                                     .horizontal_alignment(HorizontalAlignment::Stretch)
+                                    .automation_name("Game version")
                                     .content(
                                         ComboBox::new()
                                             .horizontal_alignment(HorizontalAlignment::Stretch)
                                             .height(theme::CONTROL_HEIGHT)
+                                            .placeholder_text("Game version")
                                             .items_source(GAME_FLAVORS.map(|flavor| flavor.label))
                                             .selected_index(self.selected_flavor)
                                             .is_enabled(
@@ -933,6 +936,7 @@ impl WinWam {
                                             .height(theme::CONTROL_HEIGHT)
                                             .horizontal_alignment(HorizontalAlignment::Stretch)
                                             .enabled(update_enabled)
+                                            .automation_name(update_label.to_string())
                                             .on_click(context.callback(move |_| {
                                                 if updates_available {
                                                     Message::UpdateAll
@@ -2290,6 +2294,7 @@ impl WinWam {
                         theme::accent_button(palette, "Support authors")
                             .grid_column(2)
                             .vertical_alignment(VerticalAlignment::Center)
+                            .automation_name("Support authors")
                             .on_click(context.callback(|_| Message::ShowSupportAuthors)),
                         theme::outline_button(palette, "Dismiss")
                             .grid_column(3)
@@ -3162,6 +3167,7 @@ fn addon_card(
             .horizontal_alignment(HorizontalAlignment::Right)
             .vertical_alignment(VerticalAlignment::Bottom)
             .enabled(!locked)
+            .automation_name(format!("Install {}", addon.name))
             .on_click({
                 let id = addon.id.clone();
                 context.callback(move |_| Message::InstallAddon(id.clone()))
@@ -3278,6 +3284,7 @@ fn addon_card(
                                         },
                                     )
                                     .height(28.0)
+                                    .automation_name(format!("View details for {}", addon.name))
                                     .on_click({
                                         let id = addon.id.clone();
                                         context.callback(move |_| {

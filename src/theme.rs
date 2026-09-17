@@ -34,9 +34,7 @@ pub const CATALOG_CARD_HEIGHT: f64 = 196.0;
 pub const CATALOG_ART_HEIGHT: f64 = 82.0;
 pub const CONTROL_HEIGHT: f64 = 42.0;
 pub const SETTINGS_BUTTON_SIZE: f64 = 44.0;
-#[allow(dead_code)]
 pub const MODAL_WIDTH: f64 = 760.0;
-#[allow(dead_code)]
 pub const MODAL_SIDEBAR_WIDTH: f64 = 250.0;
 #[allow(dead_code)]
 pub const FOCUS_RING: f64 = 2.0;
@@ -52,6 +50,12 @@ pub const META_SIZE: f64 = 12.0;
 pub const CODE_SIZE: f64 = 12.0;
 pub const STATUS_OK: Color = Color::rgb(0x7B, 0xD4, 0x00);
 pub const OVERLAY: Color = Color::argb(0xD9, 0x05, 0x08, 0x0B);
+
+// Visual capture environment (M8 pixel gate): client 1440×856, 100% scale,
+// dark WindowTheme, Segoe UI 15 / line-height 1.4, SKU Retail, directory
+// fixture data/fixtures/visual-catalog.json. windows-reactor 0.100 has no
+// RenderTargetBitmap API, so WinUI system focus visuals stand in for the
+// 2px accent ring (FOCUS_RING). Manual capture remains the pixel check.
 
 // Each SKU palette is authored here. The accent is the central identity color;
 // the surrounding surfaces are tinted to support it while preserving contrast.
@@ -349,7 +353,7 @@ pub fn ribbon_button(
         button.resource_overrides(outline_resources(palette))
     };
     ThemedButton {
-        button: button.min_width(64.0),
+        button: button.min_width(64.0).automation_name(label.clone()),
         content: Grid::new().width(60.0).height(60.0).children((
             icon_view,
             Border::new()
